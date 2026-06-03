@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="Duns Creek Invitational motocross leaderboard for best laps, three-lap race times, bikes, and riders."
+    >
+    <title>Duns Creek Invitational Leaderboard</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="topbar">
+        <a class="brand" href="#home" aria-label="Duns Creek Invitational home">
+          <span class="brand-mark" aria-hidden="true">DC</span>
+          <span class="brand-copy">
+            <strong>Duns Creek Invitational</strong>
+            <small>dunscreek.invitational</small>
+          </span>
+        </a>
+
+        <nav class="nav-actions" aria-label="Primary">
+          <a class="nav-button" href="#leaderboard" data-route-link="leaderboard">
+            <span aria-hidden="true">#</span>
+            Leaderboard
+          </a>
+          <a class="nav-button nav-button-secondary" href="#log" data-route-link="log">
+            <span aria-hidden="true">+</span>
+            Log
+          </a>
+        </nav>
+      </header>
+
+      <main id="view"></main>
+    </div>
+
+    <script src="./config.js"></script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

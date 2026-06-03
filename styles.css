@@ -718,6 +718,30 @@ h1 {
   font-weight: 700;
 }
 
+.recent-row-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.delete-log-button {
+  min-height: 34px;
+  border: 1px solid rgba(180, 72, 37, 0.38);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: var(--clay-dark);
+  background: rgba(255, 250, 240, 0.8);
+  font-size: 0.84rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.delete-log-button:hover {
+  border-color: rgba(180, 72, 37, 0.7);
+  background: rgba(242, 200, 75, 0.28);
+}
+
 @media (max-width: 760px) {
   body {
     background-attachment: scroll;
@@ -879,6 +903,14 @@ h1 {
     align-items: stretch;
     grid-template-columns: 1fr;
     flex-direction: column;
+  }
+
+  .recent-row-actions {
+    justify-content: space-between;
+  }
+
+  .delete-log-button {
+    min-width: 88px;
   }
 
   .leaderboard-table,

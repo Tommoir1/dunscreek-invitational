@@ -24,7 +24,9 @@ window.DUNSCREEK_CONFIG = {
 };
 ```
 
-The anon key is intended to be public when Row Level Security policies are set correctly. The included schema allows public reads and public inserts only.
+The anon key is intended to be public when Row Level Security policies are set correctly. The included schema allows public reads, public inserts, and same-device deletes for logs created after the `device_id` column is installed.
+
+If you already created the table, run the latest `supabase-schema.sql` again in the Supabase SQL editor. Existing rows without `device_id` will stay on the leaderboard, but they will not show the site delete button. New logs saved from a phone or browser can be deleted from that same device.
 
 ## Deploy Static Site
 

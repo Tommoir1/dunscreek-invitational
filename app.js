@@ -1,4 +1,6 @@
 const STORAGE_KEY = "dunscreek.localRaces";
+const DEVICE_KEY = "dunscreek.deviceId";
+const REMOTE_OWNED_IDS_KEY = "dunscreek.ownedRemoteRunIds";
 
 const seedRaces = [];
 
@@ -32,7 +34,25 @@ function readLocalRaces() {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.filter(isRace) : [];
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    let changed = false;
+    const races = parsed.filter(isRace).map((race) => {
+      if (race.id) {
+        return race;
+      }
+
+      changed = true;
+      return { ...race, id: createRunId("local") };
+    });
+
+    if (changed) {
+      writeLocalRaces(races);
+    }
+
+    return races;
   } catch {
     return [];
   }
@@ -42,10 +62,65 @@ function writeLocalRaces(races) {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(races));
 }
 
+function getDeviceId() {
+  let id = window.localStorage.getItem(DEVICE_KEY);
+
+  if (!id) {
+    id =
+      window.crypto?.randomUUID?.() ||
+      `device-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    window.localStorage.setItem(DEVICE_KEY, id);
+  }
+
+  return id;
+}
+
+function createRunId(prefix = "run") {
+  return (
+    window.crypto?.randomUUID?.() ||
+    `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  );
+}
+
+function readOwnedRemoteIds() {
+  try {
+    const raw = window.localStorage.getItem(REMOTE_OWNED_IDS_KEY);
+    const ids = raw ? JSON.parse(raw) : [];
+    return Array.isArray(ids) ? new Set(ids.map(String)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function writeOwnedRemoteIds(ids) {
+  window.localStorage.setItem(REMOTE_OWNED_IDS_KEY, JSON.stringify([...ids]));
+}
+
+function markOwnedRemoteId(id) {
+  if (!id) {
+    return;
+  }
+
+  const ids = readOwnedRemoteIds();
+  ids.add(String(id));
+  writeOwnedRemoteIds(ids);
+}
+
+function unmarkOwnedRemoteId(id) {
+  const ids = readOwnedRemoteIds();
+  ids.delete(String(id));
+  writeOwnedRemoteIds(ids);
+}
+
+function isOwnedRemoteId(id) {
+  return readOwnedRemoteIds().has(String(id));
+}
+
 function normalizeRace(row) {
   return {
     bike: String(row.bike || "").trim(),
     date: String(row.race_date || row.date || "").slice(0, 10),
+    id: row.id ? String(row.id) : "",
     name: String(row.name || "").trim(),
     splits: [row.lap1, row.lap2, row.lap3].map(Number),
   };
@@ -57,7 +132,7 @@ async function readRemoteRaces() {
   }
 
   const response = await fetch(
-    getSupabaseEndpoint("?select=name,bike,race_date,lap1,lap2,lap3&order=created_at.desc"),
+    getSupabaseEndpoint("?select=id,name,bike,race_date,lap1,lap2,lap3&order=created_at.desc"),
     {
       headers: {
         apikey: supabaseConfig.anonKey,
@@ -75,27 +150,99 @@ async function readRemoteRaces() {
 }
 
 async function writeRemoteRace(race) {
-  const response = await fetch(getSupabaseEndpoint(), {
-    body: JSON.stringify({
+  const insertRace = async (includeDeviceId) => {
+    const body = {
       bike: race.bike,
       lap1: race.splits[0],
       lap2: race.splits[1],
       lap3: race.splits[2],
       name: race.name,
       race_date: race.date || getTodayDate(),
-    }),
-    headers: {
-      apikey: supabaseConfig.anonKey,
-      Authorization: `Bearer ${supabaseConfig.anonKey}`,
-      "Content-Type": "application/json",
-      Prefer: "return=minimal",
-    },
-    method: "POST",
-  });
+    };
+
+    if (includeDeviceId) {
+      body.device_id = getDeviceId();
+    }
+
+    const response = await fetch(getSupabaseEndpoint("?select=id"), {
+      body: JSON.stringify(body),
+      headers: {
+        apikey: supabaseConfig.anonKey,
+        Authorization: `Bearer ${supabaseConfig.anonKey}`,
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+      },
+      method: "POST",
+    });
+
+    return response;
+  };
+
+  let response = await insertRace(true);
+  let deviceProtected = true;
+
+  if (!response.ok && response.status === 400) {
+    const error = await response.clone().json().catch(() => null);
+    if (error?.message?.includes("device_id")) {
+      response = await insertRace(false);
+      deviceProtected = false;
+    }
+  }
 
   if (!response.ok) {
     throw new Error(`Could not save time: ${response.status}`);
   }
+
+  const rows = await response.json().catch(() => []);
+  const id = rows[0]?.id ? String(rows[0].id) : "";
+
+  if (id && deviceProtected) {
+    markOwnedRemoteId(id);
+  }
+
+  return id;
+}
+
+async function deleteRemoteRace(race) {
+  if (!race.id || !isOwnedRemoteId(race.id)) {
+    throw new Error("This log cannot be deleted from this device.");
+  }
+
+  const response = await fetch(getSupabaseEndpoint(`?id=eq.${encodeURIComponent(race.id)}`), {
+    headers: {
+      apikey: supabaseConfig.anonKey,
+      Authorization: `Bearer ${supabaseConfig.anonKey}`,
+      "x-device-id": getDeviceId(),
+    },
+    method: "DELETE",
+  });
+
+  if (!response.ok) {
+    throw new Error("This log cannot be deleted yet. Update the Supabase delete policy first.");
+  }
+
+  unmarkOwnedRemoteId(race.id);
+}
+
+async function deleteRaceEntry(race) {
+  if (!race.id) {
+    throw new Error("This log cannot be deleted.");
+  }
+
+  if (hasSupabase) {
+    await deleteRemoteRace(race);
+    return;
+  }
+
+  writeLocalRaces(readLocalRaces().filter((entry) => String(entry.id) !== String(race.id)));
+}
+
+function canDeleteRace(race) {
+  if (!race?.id) {
+    return false;
+  }
+
+  return hasSupabase ? isOwnedRemoteId(race.id) : true;
 }
 
 function isRace(race) {
@@ -376,7 +523,7 @@ async function saveRaceEntry(race) {
     await writeRemoteRace(race);
   } else {
     const localRaces = readLocalRaces();
-    localRaces.unshift(race);
+    localRaces.unshift({ ...race, id: createRunId("local") });
     writeLocalRaces(localRaces);
   }
 
@@ -961,6 +1108,10 @@ async function renderLogPage() {
 
 async function renderRecentEntries() {
   const recentList = document.querySelector("#recent-list");
+  if (!recentList) {
+    return;
+  }
+
   const recentRaces = (hasSupabase ? await getAllRaces() : readLocalRaces()).slice(0, 4);
 
   if (!recentRaces.length) {
@@ -971,17 +1122,55 @@ async function renderRecentEntries() {
   recentList.innerHTML = recentRaces
     .map((race) => {
       const total = race.splits.reduce((sum, split) => sum + split, 0);
+      const deleteButton = canDeleteRace(race)
+        ? `<button class="delete-log-button" type="button" data-delete-log="${escapeAttribute(race.id)}" aria-label="Delete log for ${escapeAttribute(race.name)}">Delete</button>`
+        : "";
       return `
         <div class="recent-row">
           <div>
             <strong>${escapeHtml(race.name)}</strong>
             <span>${escapeHtml(race.bike)} / ${formatDate(race.date)} / ${race.splits.map(formatLap).join(" / ")}</span>
           </div>
-          <span class="time-cell">${formatRace(total)}</span>
+          <div class="recent-row-actions">
+            <span class="time-cell">${formatRace(total)}</span>
+            ${deleteButton}
+          </div>
         </div>
       `;
     })
     .join("");
+
+  recentList.querySelectorAll("[data-delete-log]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const race = recentRaces.find(
+        (entry) => String(entry.id) === String(button.dataset.deleteLog),
+      );
+
+      if (!race) {
+        return;
+      }
+
+      const statusTarget =
+        document.querySelector("#manual-status") || document.querySelector("#form-status");
+
+      button.disabled = true;
+      button.textContent = "Deleting";
+
+      try {
+        await deleteRaceEntry(race);
+        if (statusTarget) {
+          statusTarget.textContent = "Log deleted.";
+        }
+        await renderRecentEntries();
+      } catch (error) {
+        button.disabled = false;
+        button.textContent = "Delete";
+        if (statusTarget) {
+          statusTarget.textContent = error.message || "Could not delete this log.";
+        }
+      }
+    });
+  });
 }
 
 function escapeHtml(value) {

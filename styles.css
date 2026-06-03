@@ -256,6 +256,38 @@ h1 {
   min-width: 210px;
 }
 
+.board-controls {
+  display: grid;
+  min-width: 250px;
+  gap: 10px;
+}
+
+.mode-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px;
+  background: rgba(255, 250, 240, 0.7);
+}
+
+.mode-button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.mode-button.is-active {
+  color: var(--ink);
+  background: var(--sun);
+  box-shadow: 0 8px 18px rgba(116, 49, 25, 0.16);
+}
+
 .metric {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -769,6 +801,15 @@ h1 {
   .board-meta {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     min-width: 0;
+  }
+
+  .board-controls {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .mode-button {
+    min-height: 42px;
   }
 
   .filters,

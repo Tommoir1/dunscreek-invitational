@@ -418,7 +418,6 @@ async function renderRoute() {
 
 async function renderHomePage() {
   const rows = aggregateRaces(await getAllRaces());
-  const fastest = rows[0];
 
   view.innerHTML = `
     <section class="hero-board" aria-labelledby="all-time-heading">
@@ -428,14 +427,20 @@ async function renderHomePage() {
             <p class="eyebrow">All time</p>
             <h1 id="all-time-heading">Leaderboard</h1>
           </div>
-          <div class="board-meta" aria-label="Leaderboard stats">
-            <div class="metric">
-              <strong>${rows.length}</strong>
-              <span>Riders</span>
+          <div class="board-controls">
+            <div class="mode-toggle" role="group" aria-label="Leaderboard type">
+              <button class="mode-button is-active" type="button" data-home-mode="lap" aria-pressed="true">Lap</button>
+              <button class="mode-button" type="button" data-home-mode="race" aria-pressed="false">Race</button>
             </div>
-            <div class="metric">
-              <strong>${fastest ? formatLap(fastest.bestLap) : "-"}</strong>
-              <span>Best lap</span>
+            <div class="board-meta" aria-label="Leaderboard stats">
+              <div class="metric">
+                <strong>${rows.length}</strong>
+                <span>Riders</span>
+              </div>
+              <div class="metric">
+                <strong id="home-best-time">-</strong>
+                <span id="home-best-label">Best lap</span>
+              </div>
             </div>
           </div>
         </div>
@@ -445,33 +450,69 @@ async function renderHomePage() {
               <tr>
                 <th scope="col">Rank</th>
                 <th scope="col">Name</th>
-                <th scope="col">Lap time</th>
+                <th scope="col" id="home-time-heading">Lap time</th>
                 <th scope="col">Bike</th>
                 <th scope="col">Date</th>
               </tr>
             </thead>
-            <tbody>
-              ${
-                rows.length
-                  ? rows.map(renderAllTimeRow).join("")
-                  : `<tr><td colspan="5" class="empty-state">No times logged yet.</td></tr>`
-              }
-            </tbody>
+            <tbody id="home-leaderboard-rows"></tbody>
           </table>
         </div>
       </div>
     </section>
   `;
+
+  const modeButtons = document.querySelectorAll("[data-home-mode]");
+  const rowsTarget = document.querySelector("#home-leaderboard-rows");
+  const bestTime = document.querySelector("#home-best-time");
+  const bestLabel = document.querySelector("#home-best-label");
+  const timeHeading = document.querySelector("#home-time-heading");
+  const renderHomeRows = (mode) => {
+    const isRaceMode = mode === "race";
+    const sortedRows = [...rows].sort((a, b) =>
+      isRaceMode ? a.bestRaceTotal - b.bestRaceTotal : a.bestLap - b.bestLap,
+    );
+    const fastest = sortedRows[0];
+
+    bestTime.textContent = fastest
+      ? isRaceMode
+        ? formatRace(fastest.bestRaceTotal)
+        : formatLap(fastest.bestLap)
+      : "-";
+    bestLabel.textContent = isRaceMode ? "Best race" : "Best lap";
+    timeHeading.textContent = isRaceMode ? "Race time" : "Lap time";
+    rowsTarget.innerHTML = sortedRows.length
+      ? sortedRows.map((row, index) => renderAllTimeRow(row, index, mode)).join("")
+      : `<tr><td colspan="5" class="empty-state">No times logged yet.</td></tr>`;
+
+    modeButtons.forEach((button) => {
+      const active = button.dataset.homeMode === mode;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+  };
+
+  modeButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      renderHomeRows(button.dataset.homeMode);
+    });
+  });
+  renderHomeRows("lap");
 }
 
-function renderAllTimeRow(row, index) {
+function renderAllTimeRow(row, index, mode = "lap") {
+  const isRaceMode = mode === "race";
+  const time = isRaceMode ? formatRace(row.bestRaceTotal) : formatLap(row.bestLap);
+  const date = isRaceMode ? row.bestRaceDate : row.bestLapDate;
+  const label = isRaceMode ? "Race" : "Lap";
+
   return `
     <tr>
       <td class="rank" data-label="Rank">${index + 1}</td>
       <td class="name-cell" data-label="Name">${escapeHtml(row.name)}</td>
-      <td class="time-cell" data-label="Lap">${formatLap(row.bestLap)}</td>
+      <td class="time-cell" data-label="${label}">${time}</td>
       <td data-label="Bike"><span class="bike-pill">${escapeHtml(row.bike)}</span></td>
-      <td class="date-cell" data-label="Date">${formatDate(row.bestLapDate)}</td>
+      <td class="date-cell" data-label="Date">${formatDate(date)}</td>
     </tr>
   `;
 }

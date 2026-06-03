@@ -119,6 +119,7 @@ function isOwnedRemoteId(id) {
 function normalizeRace(row) {
   return {
     bike: String(row.bike || "").trim(),
+    createdAt: String(row.created_at || row.createdAt || ""),
     date: String(row.race_date || row.date || "").slice(0, 10),
     id: row.id ? String(row.id) : "",
     name: String(row.name || "").trim(),
@@ -132,7 +133,9 @@ async function readRemoteRaces() {
   }
 
   const response = await fetch(
-    getSupabaseEndpoint("?select=id,name,bike,race_date,lap1,lap2,lap3&order=created_at.desc"),
+    getSupabaseEndpoint(
+      "?select=id,name,bike,race_date,lap1,lap2,lap3,created_at&order=created_at.desc",
+    ),
     {
       headers: {
         apikey: supabaseConfig.anonKey,
@@ -318,6 +321,14 @@ function formatRace(value) {
   return `${minutes}:${seconds.toFixed(3).padStart(6, "0")}`;
 }
 
+function getRaceTotal(race) {
+  return race.splits.reduce((sum, split) => sum + split, 0);
+}
+
+function getRaceBestLap(race) {
+  return Math.min(...race.splits);
+}
+
 function formatDate(value) {
   if (!value) {
     return "-";
@@ -379,6 +390,25 @@ function renderRank(rank) {
 
 function getTodayDate() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function getRaceSortValue(race) {
+  const dateValue = Date.parse(`${race.date || ""}T00:00:00`);
+  const createdValue = Date.parse(race.createdAt || "");
+
+  if (Number.isFinite(dateValue) && Number.isFinite(createdValue)) {
+    return dateValue + createdValue % 86400000;
+  }
+
+  if (Number.isFinite(dateValue)) {
+    return dateValue;
+  }
+
+  if (Number.isFinite(createdValue)) {
+    return createdValue;
+  }
+
+  return 0;
 }
 
 function formatClock(milliseconds) {
@@ -565,7 +595,7 @@ async function saveRaceEntry(race) {
     await writeRemoteRace(race);
   } else {
     const localRaces = readLocalRaces();
-    localRaces.unshift({ ...race, id: createRunId("local") });
+    localRaces.unshift({ ...race, createdAt: new Date().toISOString(), id: createRunId("local") });
     writeLocalRaces(localRaces);
   }
 
@@ -707,7 +737,8 @@ function renderAllTimeRow(row, index, mode = "lap") {
 }
 
 async function renderLeaderboardPage() {
-  const rows = aggregateRaces(await getAllRaces()).sort(
+  const allRaces = await getAllRaces();
+  const rows = aggregateRaces(allRaces).sort(
     (a, b) => a.bestRaceTotal - b.bestRaceTotal,
   );
   const bikes = [...new Set(rows.map((row) => row.bike))].sort((a, b) =>
@@ -758,12 +789,96 @@ async function renderLeaderboardPage() {
           </table>
         </div>
       </div>
+
+      <div class="board-panel rider-history-panel" id="rider-history-panel" hidden>
+        <div class="history-header">
+          <div>
+            <p class="eyebrow">Rider history</p>
+            <h2 id="history-heading">Run history</h2>
+          </div>
+          <div class="history-summary" id="history-summary" aria-label="Rider history stats"></div>
+        </div>
+        <div class="history-chart" id="history-chart"></div>
+        <div class="table-wrap">
+          <table class="leaderboard-table history-table">
+            <thead>
+              <tr>
+                <th scope="col">Date</th>
+                <th scope="col">Rider</th>
+                <th scope="col">Bike</th>
+                <th scope="col">Race time</th>
+                <th scope="col">Best lap</th>
+                <th scope="col">Lap splits</th>
+              </tr>
+            </thead>
+            <tbody id="history-rows"></tbody>
+          </table>
+        </div>
+      </div>
     </section>
   `;
 
   const userFilter = document.querySelector("#user-filter");
   const bikeFilter = document.querySelector("#bike-filter");
   const dateFilter = document.querySelector("#date-filter");
+  const historyPanel = document.querySelector("#rider-history-panel");
+  const historyHeading = document.querySelector("#history-heading");
+  const historySummary = document.querySelector("#history-summary");
+  const historyChart = document.querySelector("#history-chart");
+  const historyRows = document.querySelector("#history-rows");
+
+  const renderHistory = (userQuery, bike, date) => {
+    if (!userQuery) {
+      historyPanel.hidden = true;
+      return;
+    }
+
+    const matchedRaces = allRaces
+      .filter((race) => {
+        const matchesUser = race.name.toLowerCase().includes(userQuery);
+        const matchesBike = !bike || race.bike === bike;
+        const matchesDate = !date || race.date === date;
+        return matchesUser && matchesBike && matchesDate;
+      })
+      .sort((a, b) => getRaceSortValue(a) - getRaceSortValue(b));
+
+    const riderNames = [...new Set(matchedRaces.map((race) => race.name))].sort((a, b) =>
+      a.localeCompare(b),
+    );
+    const bestRace = matchedRaces.reduce(
+      (best, race) => Math.min(best, getRaceTotal(race)),
+      Number.POSITIVE_INFINITY,
+    );
+    const bestLap = matchedRaces.reduce(
+      (best, race) => Math.min(best, getRaceBestLap(race)),
+      Number.POSITIVE_INFINITY,
+    );
+
+    historyPanel.hidden = false;
+    historyHeading.textContent =
+      riderNames.length === 1 ? `${riderNames[0]} history` : "Rider history";
+    historySummary.innerHTML = `
+      <div>
+        <strong>${matchedRaces.length}</strong>
+        <span>Runs</span>
+      </div>
+      <div>
+        <strong>${Number.isFinite(bestRace) ? formatRace(bestRace) : "-"}</strong>
+        <span>Best race</span>
+      </div>
+      <div>
+        <strong>${Number.isFinite(bestLap) ? formatLap(bestLap) : "-"}</strong>
+        <span>Best lap</span>
+      </div>
+    `;
+    historyChart.innerHTML = matchedRaces.length
+      ? renderHistoryChart(matchedRaces)
+      : `<div class="history-empty">No logged times match this rider.</div>`;
+    historyRows.innerHTML = matchedRaces.length
+      ? [...matchedRaces].reverse().map(renderHistoryRow).join("")
+      : `<tr><td colspan="6" class="empty-state">No logged times match this rider.</td></tr>`;
+  };
+
   const renderRows = () => {
     const userQuery = userFilter.value.trim().toLowerCase();
     const bike = bikeFilter.value;
@@ -778,12 +893,79 @@ async function renderLeaderboardPage() {
     document.querySelector("#detail-rows").innerHTML = filteredRows.length
       ? filteredRows.map(renderDetailedRow).join("")
       : `<tr><td colspan="7" class="empty-state">No times match those filters.</td></tr>`;
+    renderHistory(userQuery, bike, date);
   };
 
   userFilter.addEventListener("input", renderRows);
   bikeFilter.addEventListener("change", renderRows);
   dateFilter.addEventListener("change", renderRows);
   renderRows();
+}
+
+function renderHistoryChart(races) {
+  const width = 760;
+  const height = 236;
+  const inset = {
+    bottom: 42,
+    left: 64,
+    right: 22,
+    top: 24,
+  };
+  const plotWidth = width - inset.left - inset.right;
+  const plotHeight = height - inset.top - inset.bottom;
+  const totals = races.map(getRaceTotal);
+  const fastest = Math.min(...totals);
+  const slowest = Math.max(...totals);
+  const spread = Math.max(1, slowest - fastest);
+  const domainMin = fastest - spread * 0.08;
+  const domainMax = slowest + spread * 0.08;
+  const pointRows = races.map((race, index) => {
+    const total = getRaceTotal(race);
+    const x =
+      races.length === 1
+        ? inset.left + plotWidth / 2
+        : inset.left + (plotWidth * index) / (races.length - 1);
+    const y =
+      inset.top + ((total - domainMin) / Math.max(1, domainMax - domainMin)) * plotHeight;
+
+    return { race, total, x, y };
+  });
+  const linePoints = pointRows.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
+  const areaPoints = `${inset.left},${height - inset.bottom} ${linePoints} ${width - inset.right},${height - inset.bottom}`;
+  const bestTotal = Math.min(...pointRows.map((point) => point.total));
+  const firstDate = formatDate(races[0].date);
+  const lastDate = formatDate(races[races.length - 1].date);
+
+  return `
+    <div class="history-chart-title">
+      <strong>Race time trend</strong>
+      <span>Lower is faster</span>
+    </div>
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Race time trend by date">
+      <line class="history-grid-line" x1="${inset.left}" y1="${inset.top}" x2="${width - inset.right}" y2="${inset.top}"></line>
+      <line class="history-grid-line" x1="${inset.left}" y1="${height - inset.bottom}" x2="${width - inset.right}" y2="${height - inset.bottom}"></line>
+      <text class="history-axis-label" x="8" y="${inset.top + 5}">${formatRace(fastest)}</text>
+      <text class="history-axis-label" x="8" y="${height - inset.bottom + 5}">${formatRace(slowest)}</text>
+      <polygon class="history-chart-area" points="${areaPoints}"></polygon>
+      <polyline class="history-chart-line" points="${linePoints}"></polyline>
+      ${pointRows
+        .map(
+          (point) => `
+            <circle
+              class="history-chart-point ${point.total === bestTotal ? "is-best" : ""}"
+              cx="${point.x.toFixed(1)}"
+              cy="${point.y.toFixed(1)}"
+              r="${point.total === bestTotal ? 7 : 5}"
+            >
+              <title>${formatDate(point.race.date)} / ${formatRace(point.total)}</title>
+            </circle>
+          `,
+        )
+        .join("")}
+      <text class="history-date-label" x="${inset.left}" y="${height - 10}">${firstDate}</text>
+      <text class="history-date-label" x="${width - inset.right}" y="${height - 10}" text-anchor="end">${lastDate}</text>
+    </svg>
+  `;
 }
 
 function renderDetailedRow(row, index) {
@@ -800,6 +982,23 @@ function renderDetailedRow(row, index) {
         </div>
       </td>
       <td class="time-cell" data-label="Best lap">${formatLap(row.bestLap)}</td>
+    </tr>
+  `;
+}
+
+function renderHistoryRow(race) {
+  return `
+    <tr>
+      <td class="date-cell" data-label="Date">${formatDate(race.date)}</td>
+      <td class="name-cell" data-label="Rider">${escapeHtml(race.name)}</td>
+      <td data-label="Bike"><span class="bike-pill">${escapeHtml(race.bike)}</span></td>
+      <td class="time-cell" data-label="Race">${formatRace(getRaceTotal(race))}</td>
+      <td class="time-cell" data-label="Best lap">${formatLap(getRaceBestLap(race))}</td>
+      <td data-label="Splits">
+        <div class="split-list" aria-label="Logged lap splits">
+          ${race.splits.map((split) => `<span>${formatLap(split)}</span>`).join("")}
+        </div>
+      </td>
     </tr>
   `;
 }

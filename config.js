@@ -1,5 +1,5 @@
 window.DUNSCREEK_CONFIG = {
-  supabaseAnonKey: "",
+  supabaseAnonKey: "sb_publishable_kZAPUbh_wbEYfW7hTb3OjA_W-XRRE5S",
   supabaseTable: "runs",
-  supabaseUrl: "",
+  supabaseUrl: "https://zpbitylwezwlwcznjdig.supabase.co",
 };

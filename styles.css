@@ -356,6 +356,39 @@ h1 {
   font-weight: 950;
 }
 
+.rank-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7px;
+  min-width: 62px;
+  color: var(--trophy-color);
+  font-weight: 950;
+}
+
+.rank-trophy {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  fill: rgba(255, 250, 240, 0.22);
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.rank-badge-gold {
+  --trophy-color: #b77a00;
+}
+
+.rank-badge-silver {
+  --trophy-color: #70777c;
+}
+
+.rank-badge-bronze {
+  --trophy-color: #9a5731;
+}
+
 .name-cell {
   font-size: clamp(1.04rem, 2vw, 1.32rem);
   font-weight: 900;
@@ -986,6 +1019,15 @@ h1 {
   .leaderboard-table .date-cell {
     font-size: 0.84rem;
     white-space: normal;
+  }
+
+  .leaderboard-table .rank {
+    justify-content: space-between;
+  }
+
+  .rank-badge {
+    justify-content: flex-end;
+    min-width: 76px;
   }
 
   .leaderboard-table .bike-pill {

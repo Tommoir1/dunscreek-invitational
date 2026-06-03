@@ -335,6 +335,48 @@ function formatDate(value) {
   }).format(date);
 }
 
+function getPlaceLabel(rank) {
+  if (rank === 1) {
+    return "1st place";
+  }
+
+  if (rank === 2) {
+    return "2nd place";
+  }
+
+  if (rank === 3) {
+    return "3rd place";
+  }
+
+  return `${rank}th place`;
+}
+
+function renderRank(rank) {
+  const podium = [
+    { name: "Gold", tone: "gold" },
+    { name: "Silver", tone: "silver" },
+    { name: "Bronze", tone: "bronze" },
+  ][rank - 1];
+
+  if (!podium) {
+    return String(rank);
+  }
+
+  return `
+    <span class="rank-badge rank-badge-${podium.tone}" aria-label="${podium.name} trophy, ${getPlaceLabel(rank)}">
+      <svg class="rank-trophy" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path>
+        <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path>
+        <path d="M4 22h16"></path>
+        <path d="M10 14.7V17c0 .6-.5 1-1 1.2C7.9 18.8 7 20.2 7 22"></path>
+        <path d="M14 14.7V17c0 .6.5 1 1 1.2 1.1.6 2 2 2 3.8"></path>
+        <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"></path>
+      </svg>
+      <span aria-hidden="true">${rank}</span>
+    </span>
+  `;
+}
+
 function getTodayDate() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -655,7 +697,7 @@ function renderAllTimeRow(row, index, mode = "lap") {
 
   return `
     <tr>
-      <td class="rank" data-label="Rank">${index + 1}</td>
+      <td class="rank" data-label="Rank">${renderRank(index + 1)}</td>
       <td class="name-cell" data-label="Name">${escapeHtml(row.name)}</td>
       <td class="time-cell" data-label="${label}">${time}</td>
       <td data-label="Bike"><span class="bike-pill">${escapeHtml(row.bike)}</span></td>
@@ -747,7 +789,7 @@ async function renderLeaderboardPage() {
 function renderDetailedRow(row, index) {
   return `
     <tr>
-      <td class="rank" data-label="Rank">${index + 1}</td>
+      <td class="rank" data-label="Rank">${renderRank(index + 1)}</td>
       <td class="name-cell" data-label="Name">${escapeHtml(row.name)}</td>
       <td data-label="Bike"><span class="bike-pill">${escapeHtml(row.bike)}</span></td>
       <td class="time-cell" data-label="Best race">${formatRace(row.bestRaceTotal)}</td>

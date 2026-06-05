@@ -117,13 +117,17 @@ function isOwnedRemoteId(id) {
 }
 
 function normalizeRace(row) {
+  const splits = [row.lap1, row.lap2, row.lap3]
+    .filter((value) => value !== null && value !== undefined && value !== "")
+    .map(Number);
+
   return {
     bike: String(row.bike || "").trim(),
     createdAt: String(row.created_at || row.createdAt || ""),
     date: String(row.race_date || row.date || "").slice(0, 10),
     id: row.id ? String(row.id) : "",
     name: String(row.name || "").trim(),
-    splits: [row.lap1, row.lap2, row.lap3].map(Number),
+    splits,
   };
 }
 
@@ -157,8 +161,8 @@ async function writeRemoteRace(race) {
     const body = {
       bike: race.bike,
       lap1: race.splits[0],
-      lap2: race.splits[1],
-      lap3: race.splits[2],
+      lap2: race.splits[1] ?? null,
+      lap3: race.splits[2] ?? null,
       name: race.name,
       race_date: race.date || getTodayDate(),
     };
@@ -193,6 +197,10 @@ async function writeRemoteRace(race) {
   }
 
   if (!response.ok) {
+    if (race.splits.length === 1) {
+      throw new Error("Could not save single lap yet. Run the latest Supabase schema first.");
+    }
+
     throw new Error(`Could not save time: ${response.status}`);
   }
 
@@ -254,7 +262,7 @@ function isRace(race) {
     typeof race.name === "string" &&
     typeof race.bike === "string" &&
     Array.isArray(race.splits) &&
-    race.splits.length === 3 &&
+    (race.splits.length === 1 || race.splits.length === 3) &&
     race.splits.every((value) => Number.isFinite(value) && value > 0)
   );
 }
@@ -272,8 +280,9 @@ function aggregateRaces(races = []) {
 
   for (const race of races) {
     const key = makeRaceKey(race.name, race.bike);
-    const total = race.splits.reduce((sum, split) => sum + split, 0);
-    const lap = Math.min(...race.splits);
+    const total = getRaceTotal(race);
+    const lap = getRaceBestLap(race);
+    const isRaceEntry = isFullRace(race);
     const existing =
       map.get(key) ||
       {
@@ -294,7 +303,7 @@ function aggregateRaces(races = []) {
       existing.bestLapDate = race.date || "";
     }
 
-    if (total < existing.bestRaceTotal) {
+    if (isRaceEntry && total < existing.bestRaceTotal) {
       existing.bestRaceTotal = total;
       existing.bestRaceDate = race.date || "";
       existing.bestRaceSplits = [...race.splits];
@@ -327,6 +336,18 @@ function getRaceTotal(race) {
 
 function getRaceBestLap(race) {
   return Math.min(...race.splits);
+}
+
+function isFullRace(race) {
+  return race.splits.length === 3;
+}
+
+function formatEntryTime(race) {
+  return isFullRace(race) ? formatRace(getRaceTotal(race)) : formatLap(getRaceBestLap(race));
+}
+
+function getEntryType(race) {
+  return isFullRace(race) ? "Race" : "Lap";
 }
 
 function formatDate(value) {
@@ -442,14 +463,17 @@ function parseTime(value) {
 }
 
 function getBestMessage(race, previous) {
-  const total = race.splits.reduce((sum, split) => sum + split, 0);
-  const bestLap = Math.min(...race.splits);
+  const total = getRaceTotal(race);
+  const bestLap = getRaceBestLap(race);
+  const isRaceEntry = isFullRace(race);
 
   if (!previous) {
-    return `First run saved for ${race.name}: ${formatRace(total)}.`;
+    return isRaceEntry
+      ? `First run saved for ${race.name}: ${formatRace(total)}.`
+      : `First lap saved for ${race.name}: ${formatLap(bestLap)}.`;
   }
 
-  const beatRace = total < previous.bestRaceTotal;
+  const beatRace = isRaceEntry && total < previous.bestRaceTotal;
   const beatLap = bestLap < previous.bestLap;
 
   if (beatRace && beatLap) {
@@ -464,7 +488,13 @@ function getBestMessage(race, previous) {
     return `New personal best lap: ${formatLap(bestLap)}.`;
   }
 
-  return `Run saved: ${formatRace(total)}. Best remains ${formatRace(previous.bestRaceTotal)}.`;
+  if (!isRaceEntry) {
+    return `Lap saved: ${formatLap(bestLap)}. Best remains ${formatLap(previous.bestLap)}.`;
+  }
+
+  return Number.isFinite(previous.bestRaceTotal)
+    ? `Run saved: ${formatRace(total)}. Best remains ${formatRace(previous.bestRaceTotal)}.`
+    : `Run saved: ${formatRace(total)}.`;
 }
 
 async function getSaveResult(race) {
@@ -474,11 +504,13 @@ async function getSaveResult(race) {
   const previousBikeRows = previousRows.filter(
     (row) => row.bike.trim().toLowerCase() === race.bike.trim().toLowerCase(),
   );
-  const total = race.splits.reduce((sum, split) => sum + split, 0);
-  const bestLap = Math.min(...race.splits);
+  const total = getRaceTotal(race);
+  const bestLap = getRaceBestLap(race);
+  const isRaceEntry = isFullRace(race);
   const previousTrackLap = previousRows[0]?.bestLap ?? Number.POSITIVE_INFINITY;
   const previousTrackRace = previousRows.reduce(
-    (best, row) => Math.min(best, row.bestRaceTotal),
+    (best, row) =>
+      Number.isFinite(row.bestRaceTotal) ? Math.min(best, row.bestRaceTotal) : best,
     Number.POSITIVE_INFINITY,
   );
   const previousBikeLap = previousBikeRows.reduce(
@@ -486,13 +518,14 @@ async function getSaveResult(race) {
     Number.POSITIVE_INFINITY,
   );
   const previousBikeRace = previousBikeRows.reduce(
-    (best, row) => Math.min(best, row.bestRaceTotal),
+    (best, row) =>
+      Number.isFinite(row.bestRaceTotal) ? Math.min(best, row.bestRaceTotal) : best,
     Number.POSITIVE_INFINITY,
   );
   const alerts = [];
 
   if (previousPersonal) {
-    const beatRace = total < previousPersonal.bestRaceTotal;
+    const beatRace = isRaceEntry && total < previousPersonal.bestRaceTotal;
     const beatLap = bestLap < previousPersonal.bestLap;
 
     if (beatRace && beatLap) {
@@ -518,13 +551,15 @@ async function getSaveResult(race) {
 
   if (!previousRows.length) {
     alerts.push({
-      detail: `${formatLap(bestLap)} lap / ${formatRace(total)} race`,
-      title: "First track records set",
+      detail: isRaceEntry
+        ? `${formatLap(bestLap)} lap / ${formatRace(total)} race`
+        : `${formatLap(bestLap)} lap`,
+      title: isRaceEntry ? "First track records set" : "First track lap record",
       type: "track",
     });
   } else {
     const beatTrackLap = bestLap < previousTrackLap;
-    const beatTrackRace = total < previousTrackRace;
+    const beatTrackRace = isRaceEntry && total < previousTrackRace;
 
     if (beatTrackLap && beatTrackRace) {
       alerts.push({
@@ -549,13 +584,15 @@ async function getSaveResult(race) {
 
   if (!previousBikeRows.length) {
     alerts.push({
-      detail: `${race.bike} / ${formatLap(bestLap)} lap / ${formatRace(total)} race`,
-      title: "First bike records set",
+      detail: isRaceEntry
+        ? `${race.bike} / ${formatLap(bestLap)} lap / ${formatRace(total)} race`
+        : `${race.bike} / ${formatLap(bestLap)} lap`,
+      title: isRaceEntry ? "First bike records set" : "First bike lap record",
       type: "bike",
     });
   } else {
     const beatBikeLap = bestLap < previousBikeLap;
-    const beatBikeRace = total < previousBikeRace;
+    const beatBikeRace = isRaceEntry && total < previousBikeRace;
 
     if (beatBikeLap && beatBikeRace) {
       alerts.push({
@@ -688,9 +725,13 @@ async function renderHomePage() {
   const timeHeading = document.querySelector("#home-time-heading");
   const renderHomeRows = (mode) => {
     const isRaceMode = mode === "race";
-    const sortedRows = [...rows].sort((a, b) =>
-      isRaceMode ? a.bestRaceTotal - b.bestRaceTotal : a.bestLap - b.bestLap,
-    );
+    const sortedRows = [...rows]
+      .filter((row) =>
+        isRaceMode ? Number.isFinite(row.bestRaceTotal) : Number.isFinite(row.bestLap),
+      )
+      .sort((a, b) =>
+        isRaceMode ? a.bestRaceTotal - b.bestRaceTotal : a.bestLap - b.bestLap,
+      );
     const fastest = sortedRows[0];
 
     bestTime.textContent = fastest
@@ -702,7 +743,7 @@ async function renderHomePage() {
     timeHeading.textContent = isRaceMode ? "Race time" : "Lap time";
     rowsTarget.innerHTML = sortedRows.length
       ? sortedRows.map((row, index) => renderAllTimeRow(row, index, mode)).join("")
-      : `<tr><td colspan="5" class="empty-state">No times logged yet.</td></tr>`;
+      : `<tr><td colspan="5" class="empty-state">${isRaceMode ? "No race times logged yet." : "No lap times logged yet."}</td></tr>`;
 
     modeButtons.forEach((button) => {
       const active = button.dataset.homeMode === mode;
@@ -806,8 +847,8 @@ async function renderLeaderboardPage() {
                 <th scope="col">Date</th>
                 <th scope="col">Rider</th>
                 <th scope="col">Bike</th>
-                <th scope="col">Race time</th>
-                <th scope="col">Best lap</th>
+                <th scope="col">Type</th>
+                <th scope="col">Time</th>
                 <th scope="col">Lap splits</th>
               </tr>
             </thead>
@@ -887,7 +928,7 @@ async function renderLeaderboardPage() {
       const matchesUser = row.name.toLowerCase().includes(userQuery);
       const matchesBike = !bike || row.bike === bike;
       const matchesDate = !date || row.bestRaceDate === date || row.bestLapDate === date;
-      return matchesUser && matchesBike && matchesDate;
+      return Number.isFinite(row.bestRaceTotal) && matchesUser && matchesBike && matchesDate;
     });
 
     document.querySelector("#detail-rows").innerHTML = filteredRows.length
@@ -913,51 +954,51 @@ function renderHistoryChart(races) {
   };
   const plotWidth = width - inset.left - inset.right;
   const plotHeight = height - inset.top - inset.bottom;
-  const totals = races.map(getRaceTotal);
-  const fastest = Math.min(...totals);
-  const slowest = Math.max(...totals);
+  const laps = races.map(getRaceBestLap);
+  const fastest = Math.min(...laps);
+  const slowest = Math.max(...laps);
   const spread = Math.max(1, slowest - fastest);
   const domainMin = fastest - spread * 0.08;
   const domainMax = slowest + spread * 0.08;
   const pointRows = races.map((race, index) => {
-    const total = getRaceTotal(race);
+    const lap = getRaceBestLap(race);
     const x =
       races.length === 1
         ? inset.left + plotWidth / 2
         : inset.left + (plotWidth * index) / (races.length - 1);
     const y =
-      inset.top + ((total - domainMin) / Math.max(1, domainMax - domainMin)) * plotHeight;
+      inset.top + ((lap - domainMin) / Math.max(1, domainMax - domainMin)) * plotHeight;
 
-    return { race, total, x, y };
+    return { lap, race, x, y };
   });
   const linePoints = pointRows.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
   const areaPoints = `${inset.left},${height - inset.bottom} ${linePoints} ${width - inset.right},${height - inset.bottom}`;
-  const bestTotal = Math.min(...pointRows.map((point) => point.total));
+  const bestLap = Math.min(...pointRows.map((point) => point.lap));
   const firstDate = formatDate(races[0].date);
   const lastDate = formatDate(races[races.length - 1].date);
 
   return `
     <div class="history-chart-title">
-      <strong>Race time trend</strong>
+      <strong>Lap time trend</strong>
       <span>Lower is faster</span>
     </div>
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Race time trend by date">
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Lap time trend by date">
       <line class="history-grid-line" x1="${inset.left}" y1="${inset.top}" x2="${width - inset.right}" y2="${inset.top}"></line>
       <line class="history-grid-line" x1="${inset.left}" y1="${height - inset.bottom}" x2="${width - inset.right}" y2="${height - inset.bottom}"></line>
-      <text class="history-axis-label" x="8" y="${inset.top + 5}">${formatRace(fastest)}</text>
-      <text class="history-axis-label" x="8" y="${height - inset.bottom + 5}">${formatRace(slowest)}</text>
+      <text class="history-axis-label" x="8" y="${inset.top + 5}">${formatLap(fastest)}</text>
+      <text class="history-axis-label" x="8" y="${height - inset.bottom + 5}">${formatLap(slowest)}</text>
       <polygon class="history-chart-area" points="${areaPoints}"></polygon>
       <polyline class="history-chart-line" points="${linePoints}"></polyline>
       ${pointRows
         .map(
           (point) => `
             <circle
-              class="history-chart-point ${point.total === bestTotal ? "is-best" : ""}"
+              class="history-chart-point ${point.lap === bestLap ? "is-best" : ""}"
               cx="${point.x.toFixed(1)}"
               cy="${point.y.toFixed(1)}"
-              r="${point.total === bestTotal ? 7 : 5}"
+              r="${point.lap === bestLap ? 7 : 5}"
             >
-              <title>${formatDate(point.race.date)} / ${formatRace(point.total)}</title>
+              <title>${formatDate(point.race.date)} / ${formatLap(point.lap)}</title>
             </circle>
           `,
         )
@@ -992,8 +1033,8 @@ function renderHistoryRow(race) {
       <td class="date-cell" data-label="Date">${formatDate(race.date)}</td>
       <td class="name-cell" data-label="Rider">${escapeHtml(race.name)}</td>
       <td data-label="Bike"><span class="bike-pill">${escapeHtml(race.bike)}</span></td>
-      <td class="time-cell" data-label="Race">${formatRace(getRaceTotal(race))}</td>
-      <td class="time-cell" data-label="Best lap">${formatLap(getRaceBestLap(race))}</td>
+      <td data-label="Type"><span class="entry-type-pill">${getEntryType(race)}</span></td>
+      <td class="time-cell" data-label="Time">${formatEntryTime(race)}</td>
       <td data-label="Splits">
         <div class="split-list" aria-label="Logged lap splits">
           ${race.splits.map((split) => `<span>${formatLap(split)}</span>`).join("")}
@@ -1048,6 +1089,7 @@ async function renderLogPage() {
             <button class="action-button" id="start-button" type="button">Start</button>
             <button class="ghost-button stop-button" id="stop-button" type="button" disabled>Stop</button>
             <button class="ghost-button" id="lap-button" type="button" disabled>Lap</button>
+            <button class="ghost-button save-lap-button" id="save-lap-button" type="button" disabled>Save Lap</button>
             <button class="ghost-button" id="reset-button" type="button">Reset</button>
           </div>
         </div>
@@ -1086,8 +1128,8 @@ async function renderLogPage() {
             <label>Lap splits</label>
             <div class="split-inputs">
               <input name="lap1" inputmode="decimal" placeholder="Lap 1" required>
-              <input name="lap2" inputmode="decimal" placeholder="Lap 2" required>
-              <input name="lap3" inputmode="decimal" placeholder="Lap 3" required>
+              <input name="lap2" inputmode="decimal" placeholder="Lap 2 (race)">
+              <input name="lap3" inputmode="decimal" placeholder="Lap 3 (race)">
             </div>
           </div>
         </div>
@@ -1112,6 +1154,7 @@ async function renderLogPage() {
   const startButton = document.querySelector("#start-button");
   const stopButton = document.querySelector("#stop-button");
   const lapButton = document.querySelector("#lap-button");
+  const saveLapButton = document.querySelector("#save-lap-button");
   const resetButton = document.querySelector("#reset-button");
   const timerRecordAlerts = document.querySelector("#timer-record-alerts");
   const manualForm = document.querySelector("#manual-form");
@@ -1140,9 +1183,10 @@ async function renderLogPage() {
 
   const setButtons = () => {
     const complete = timer.splits.length >= 3;
-    startButton.disabled = timer.running || complete;
+    startButton.disabled = timer.running || complete || timer.saved;
     stopButton.disabled = !timer.running;
-    lapButton.disabled = !timer.running || complete;
+    lapButton.disabled = !timer.running || complete || timer.saved;
+    saveLapButton.disabled = timer.splits.length !== 1 || timer.saved;
     resetButton.disabled = false;
   };
 
@@ -1196,7 +1240,7 @@ async function renderLogPage() {
     const race = getRaceDraft();
 
     if (!isRace(race)) {
-      status.textContent = "Complete three laps before saving.";
+      status.textContent = "Record one lap or three laps before saving.";
       return;
     }
 
@@ -1215,6 +1259,16 @@ async function renderLogPage() {
       status.textContent = error.message || "Could not save this time.";
       setButtons();
     }
+  };
+
+  const saveSingleLap = async () => {
+    if (timer.splits.length !== 1 || timer.saved) {
+      status.textContent = "Record one lap first.";
+      return;
+    }
+
+    stopTimer();
+    await saveRace();
   };
 
   const stopTimer = () => {
@@ -1273,7 +1327,10 @@ async function renderLogPage() {
       return true;
     }
 
-    status.textContent = `${3 - timer.splits.length} lap${timer.splits.length === 2 ? "" : "s"} left.`;
+    status.textContent =
+      timer.splits.length === 1
+        ? "Save this lap or keep going for a three-lap race."
+        : "1 lap left.";
     setButtons();
     return true;
   };
@@ -1307,6 +1364,8 @@ async function renderLogPage() {
     recordLap();
   });
 
+  saveLapButton.addEventListener("click", saveSingleLap);
+
   resetButton.addEventListener("click", resetTimer);
 
   manualForm.addEventListener("submit", async (event) => {
@@ -1316,14 +1375,15 @@ async function renderLogPage() {
     const race = {
       name: String(data.get("name")).trim(),
       bike: String(data.get("bike")).trim(),
-      splits: ["lap1", "lap2", "lap3"].map((key) =>
-        parseTime(String(data.get(key))),
-      ),
+      splits: ["lap1", "lap2", "lap3"]
+        .map((key) => String(data.get(key)).trim())
+        .filter(Boolean)
+        .map(parseTime),
       date: String(data.get("date") || getTodayDate()),
     };
 
     if (!isRace(race)) {
-      manualStatus.textContent = "Check the rider, bike, and three lap times.";
+      manualStatus.textContent = "Enter one lap or all three lap times.";
       renderRecordAlerts(manualRecordAlerts, { alerts: [] });
       return;
     }
@@ -1362,7 +1422,6 @@ async function renderRecentEntries() {
 
   recentList.innerHTML = recentRaces
     .map((race) => {
-      const total = race.splits.reduce((sum, split) => sum + split, 0);
       const deleteButton = canDeleteRace(race)
         ? `<button class="delete-log-button" type="button" data-delete-log="${escapeAttribute(race.id)}" aria-label="Delete log for ${escapeAttribute(race.name)}">Delete</button>`
         : "";
@@ -1373,7 +1432,7 @@ async function renderRecentEntries() {
             <span>${escapeHtml(race.bike)} / ${formatDate(race.date)} / ${race.splits.map(formatLap).join(" / ")}</span>
           </div>
           <div class="recent-row-actions">
-            <span class="time-cell">${formatRace(total)}</span>
+            <span class="time-cell">${formatEntryTime(race)}</span>
             ${deleteButton}
           </div>
         </div>

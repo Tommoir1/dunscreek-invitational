@@ -28,6 +28,8 @@ The anon key is intended to be public when Row Level Security policies are set c
 
 If you already created the table, run the latest `supabase-schema.sql` again in the Supabase SQL editor. Existing rows without `device_id` will stay on the leaderboard, but they will not show the site delete button. New logs saved from a phone or browser can be deleted from that same device.
 
+Single-lap logging also needs the latest SQL because `lap2` and `lap3` are optional for one-lap entries. Three-lap entries still power race records, while single-lap entries count toward best lap leaderboards and rider history.
+
 ## Deploy Static Site
 
 ### Netlify

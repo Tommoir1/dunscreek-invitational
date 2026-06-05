@@ -588,6 +588,20 @@ h1 {
   min-width: 820px;
 }
 
+.entry-type-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  border: 1px solid rgba(180, 72, 37, 0.26);
+  border-radius: 8px;
+  padding: 5px 9px;
+  color: var(--clay-dark);
+  background: rgba(242, 200, 75, 0.24);
+  font-size: 0.8rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
 .history-empty {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -712,6 +726,12 @@ h1 {
   color: var(--paper-strong);
   border-color: rgba(116, 49, 25, 0.4);
   background: var(--clay-dark);
+}
+
+.save-lap-button {
+  color: var(--moss);
+  border-color: rgba(49, 86, 63, 0.32);
+  background: rgba(200, 228, 211, 0.78);
 }
 
 .split-board {

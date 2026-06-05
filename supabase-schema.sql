@@ -5,12 +5,14 @@ create table if not exists public.runs (
   device_id text,
   race_date date not null,
   lap1 numeric not null check (lap1 > 0),
-  lap2 numeric not null check (lap2 > 0),
-  lap3 numeric not null check (lap3 > 0),
+  lap2 numeric check (lap2 > 0),
+  lap3 numeric check (lap3 > 0),
   created_at timestamptz not null default now()
 );
 
 alter table public.runs add column if not exists device_id text;
+alter table public.runs alter column lap2 drop not null;
+alter table public.runs alter column lap3 drop not null;
 
 alter table public.runs enable row level security;
 
@@ -36,8 +38,10 @@ with check (
   and length(trim(bike)) between 1 and 80
   and race_date between date '2020-01-01' and current_date + interval '1 day'
   and lap1 > 0
-  and lap2 > 0
-  and lap3 > 0
+  and (
+    (lap2 is null and lap3 is null)
+    or (lap2 > 0 and lap3 > 0)
+  )
   and (device_id is null or length(trim(device_id)) between 20 and 120)
 );
 

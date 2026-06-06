@@ -886,13 +886,13 @@ async function renderHomePage() {
   });
 
   rowsTarget.addEventListener("click", (event) => {
-    const riderButton = event.target.closest("[data-rider-name]");
+    const riderTarget = event.target.closest("[data-rider-name]");
 
-    if (!riderButton) {
+    if (!riderTarget) {
       return;
     }
 
-    setPendingRiderFilter(riderButton.dataset.riderName || "");
+    setPendingRiderFilter(riderTarget.dataset.riderName || "");
     window.location.hash = "leaderboard";
   });
 
@@ -908,7 +908,7 @@ function renderAllTimeRow(row, index, mode = "lap") {
   return `
     <tr>
       <td class="rank" data-label="Rank">${renderRank(index + 1)}</td>
-      <td class="name-cell" data-label="Name">
+      <td class="name-cell is-clickable" data-label="Name" data-rider-name="${escapeAttribute(row.name)}">
         <button class="rider-link" type="button" data-rider-name="${escapeAttribute(row.name)}">
           ${escapeHtml(row.name)}
         </button>
@@ -1083,13 +1083,28 @@ async function renderLeaderboardPage() {
   bikeFilter.addEventListener("change", renderRows);
   dateFilter.addEventListener("change", renderRows);
   detailRows.addEventListener("click", (event) => {
-    const riderButton = event.target.closest("[data-rider-name]");
+    const riderTarget = event.target.closest("[data-rider-name]");
 
-    if (!riderButton) {
+    if (!riderTarget) {
       return;
     }
 
-    userFilter.value = riderButton.dataset.riderName || "";
+    userFilter.value = riderTarget.dataset.riderName || "";
+    bikeFilter.value = "";
+    dateFilter.value = "";
+    renderRows();
+    historyPanel.scrollIntoView({ block: "start", behavior: "smooth" });
+  });
+  historyRows.addEventListener("click", (event) => {
+    const riderTarget = event.target.closest("[data-rider-name]");
+
+    if (!riderTarget) {
+      return;
+    }
+
+    userFilter.value = riderTarget.dataset.riderName || "";
+    bikeFilter.value = "";
+    dateFilter.value = "";
     renderRows();
     historyPanel.scrollIntoView({ block: "start", behavior: "smooth" });
   });
@@ -1263,7 +1278,7 @@ function renderDetailedRow(row, index) {
   return `
     <tr>
       <td class="rank" data-label="Rank">${renderRank(index + 1)}</td>
-      <td class="name-cell" data-label="Name">
+      <td class="name-cell is-clickable" data-label="Name" data-rider-name="${escapeAttribute(row.name)}">
         <button class="rider-link" type="button" data-rider-name="${escapeAttribute(row.name)}">
           ${escapeHtml(row.name)}
         </button>
@@ -1285,7 +1300,11 @@ function renderHistoryRow(race) {
   return `
     <tr>
       <td class="date-cell" data-label="Date">${formatDate(race.date)}</td>
-      <td class="name-cell" data-label="Rider">${escapeHtml(race.name)}</td>
+      <td class="name-cell is-clickable" data-label="Rider" data-rider-name="${escapeAttribute(race.name)}">
+        <button class="rider-link" type="button" data-rider-name="${escapeAttribute(race.name)}">
+          ${escapeHtml(race.name)}
+        </button>
+      </td>
       <td data-label="Bike"><span class="bike-pill">${escapeHtml(race.bike)}</span></td>
       <td data-label="Type"><span class="entry-type-pill">${getEntryType(race)}</span></td>
       <td class="time-cell" data-label="Time">${formatEntryTime(race)}</td>

@@ -395,7 +395,13 @@ h1 {
   text-transform: uppercase;
 }
 
+.name-cell.is-clickable {
+  cursor: pointer;
+}
+
 .rider-link {
+  display: block;
+  width: 100%;
   border: 0;
   padding: 0;
   color: inherit;

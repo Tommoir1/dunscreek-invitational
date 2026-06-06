@@ -324,6 +324,14 @@ function formatLap(value) {
   return value.toFixed(3);
 }
 
+function formatDelta(value) {
+  if (Math.abs(value) < 0.0005) {
+    return "0.000";
+  }
+
+  return `${value > 0 ? "+" : "-"}${Math.abs(value).toFixed(3)}`;
+}
+
 function formatRace(value) {
   const minutes = Math.floor(value / 60);
   const seconds = value - minutes * 60;
@@ -348,6 +356,40 @@ function formatEntryTime(race) {
 
 function getEntryType(race) {
   return isFullRace(race) ? "Race" : "Lap";
+}
+
+function getSplitDeltaTone(delta) {
+  if (delta < -0.0005) {
+    return "is-faster";
+  }
+
+  if (delta > 0.0005) {
+    return "is-slower";
+  }
+
+  return "is-even";
+}
+
+function renderSplitDelta(split, baseline, lapNumber) {
+  if (!Number.isFinite(split) || !Number.isFinite(baseline)) {
+    return "";
+  }
+
+  const delta = split - baseline;
+  const tone = getSplitDeltaTone(delta);
+  const readable =
+    tone === "is-faster"
+      ? `${formatDelta(delta)} faster than PB lap ${lapNumber}`
+      : tone === "is-slower"
+        ? `${formatDelta(delta)} slower than PB lap ${lapNumber}`
+        : `Even with PB lap ${lapNumber}`;
+
+  return `
+    <small class="split-delta ${tone}" aria-label="${escapeAttribute(readable)}">
+      ${formatDelta(delta)}
+      <span>vs PB ${formatLap(baseline)}</span>
+    </small>
+  `;
 }
 
 function formatDate(value) {
@@ -1046,7 +1088,7 @@ function renderHistoryRow(race) {
 
 async function renderLogPage() {
   const today = getTodayDate();
-  const currentRows = aggregateRaces(await getAllRaces());
+  let currentRows = aggregateRaces(await getAllRaces());
 
   view.innerHTML = `
     <section class="detail-grid" aria-labelledby="log-heading">
@@ -1181,6 +1223,26 @@ async function renderLogPage() {
     }
   };
 
+  const refreshCurrentRows = async () => {
+    currentRows = aggregateRaces(await getAllRaces());
+  };
+
+  const getComparisonSplits = () => {
+    const data = new FormData(form);
+    const name = String(data.get("name")).trim();
+    const bike = String(data.get("bike")).trim();
+
+    if (!name || !bike) {
+      return [];
+    }
+
+    const personalBest = currentRows.find(
+      (row) => makeRaceKey(row.name, row.bike) === makeRaceKey(name, bike),
+    );
+
+    return personalBest?.bestRaceSplits?.length === 3 ? personalBest.bestRaceSplits : [];
+  };
+
   const setButtons = () => {
     const complete = timer.splits.length >= 3;
     startButton.disabled = timer.running || complete || timer.saved;
@@ -1191,6 +1253,7 @@ async function renderLogPage() {
   };
 
   const renderSplits = () => {
+    const comparisonSplits = getComparisonSplits();
     splitBoard.innerHTML = [0, 1, 2]
       .map((index) => {
         const split = timer.splits[index];
@@ -1199,6 +1262,7 @@ async function renderLogPage() {
           <div class="split-card ${isFilled ? "is-filled" : ""}">
             <span>Lap ${index + 1}</span>
             <strong>${isFilled ? formatLap(split) : "--"}</strong>
+            ${renderSplitDelta(split, comparisonSplits[index], index + 1)}
           </div>
         `;
       })
@@ -1253,6 +1317,7 @@ async function renderLogPage() {
       status.textContent = result.status;
       renderRecordAlerts(timerRecordAlerts, result);
       await renderRecentEntries();
+      await refreshCurrentRows();
       setButtons();
     } catch (error) {
       timer.saved = false;
@@ -1397,10 +1462,13 @@ async function renderLogPage() {
       renderRecordAlerts(manualRecordAlerts, result);
       manualForm.reset();
       await renderRecentEntries();
+      await refreshCurrentRows();
     } catch (error) {
       manualStatus.textContent = error.message || "Could not save this time.";
     }
   });
+
+  form.addEventListener("input", renderSplits);
 
   renderSplits();
   setButtons();

@@ -772,6 +772,46 @@ h1 {
   font-size: clamp(1.35rem, 3vw, 2.15rem);
 }
 
+.split-delta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 5px;
+  width: fit-content;
+  border-radius: 8px;
+  padding: 4px 7px;
+  color: var(--muted);
+  background: rgba(255, 250, 240, 0.64);
+  font-family:
+    "SFMono-Regular",
+    Consolas,
+    "Liberation Mono",
+    monospace;
+  font-size: 0.76rem;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.split-delta span {
+  color: inherit;
+  font-size: 0.68rem;
+  text-transform: none;
+}
+
+.split-delta.is-faster {
+  color: var(--moss);
+  background: rgba(200, 228, 211, 0.82);
+}
+
+.split-delta.is-slower {
+  color: var(--clay-dark);
+  background: rgba(242, 200, 75, 0.28);
+}
+
+.split-delta.is-even {
+  color: var(--muted);
+}
+
 .form-actions {
   display: flex;
   align-items: center;

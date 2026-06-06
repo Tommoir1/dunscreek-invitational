@@ -881,6 +881,7 @@ async function renderLeaderboardPage() {
           </div>
           <div class="history-summary" id="history-summary" aria-label="Rider history stats"></div>
         </div>
+        <div class="history-stat-sheet" id="history-stat-sheet" aria-label="Rider stat sheet"></div>
         <div class="history-chart" id="history-chart"></div>
         <div class="table-wrap">
           <table class="leaderboard-table history-table">
@@ -907,6 +908,7 @@ async function renderLeaderboardPage() {
   const historyPanel = document.querySelector("#rider-history-panel");
   const historyHeading = document.querySelector("#history-heading");
   const historySummary = document.querySelector("#history-summary");
+  const historyStatSheet = document.querySelector("#history-stat-sheet");
   const historyChart = document.querySelector("#history-chart");
   const historyRows = document.querySelector("#history-rows");
 
@@ -928,32 +930,27 @@ async function renderLeaderboardPage() {
     const riderNames = [...new Set(matchedRaces.map((race) => race.name))].sort((a, b) =>
       a.localeCompare(b),
     );
-    const bestRace = matchedRaces.reduce(
-      (best, race) => Math.min(best, getRaceTotal(race)),
-      Number.POSITIVE_INFINITY,
-    );
-    const bestLap = matchedRaces.reduce(
-      (best, race) => Math.min(best, getRaceBestLap(race)),
-      Number.POSITIVE_INFINITY,
-    );
+    const stats = getRiderStats(matchedRaces);
 
     historyPanel.hidden = false;
     historyHeading.textContent =
       riderNames.length === 1 ? `${riderNames[0]} history` : "Rider history";
     historySummary.innerHTML = `
       <div>
-        <strong>${matchedRaces.length}</strong>
-        <span>Runs</span>
+        <strong>${stats.entries}</strong>
+        <span>Entries</span>
       </div>
       <div>
-        <strong>${Number.isFinite(bestRace) ? formatRace(bestRace) : "-"}</strong>
-        <span>Best race</span>
+        <strong>${stats.raceCount}</strong>
+        <span>Races</span>
       </div>
       <div>
-        <strong>${Number.isFinite(bestLap) ? formatLap(bestLap) : "-"}</strong>
-        <span>Best lap</span>
+        <strong>${stats.lapsLogged}</strong>
+        <span>Laps</span>
       </div>
     `;
+    historyStatSheet.hidden = !matchedRaces.length;
+    historyStatSheet.innerHTML = matchedRaces.length ? renderRiderStatSheet(stats) : "";
     historyChart.innerHTML = matchedRaces.length
       ? renderHistoryChart(matchedRaces)
       : `<div class="history-empty">No logged times match this rider.</div>`;
@@ -983,6 +980,96 @@ async function renderLeaderboardPage() {
   bikeFilter.addEventListener("change", renderRows);
   dateFilter.addEventListener("change", renderRows);
   renderRows();
+}
+
+function average(values) {
+  if (!values.length) {
+    return Number.NaN;
+  }
+
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function getRiderStats(races) {
+  const raceEntries = races.filter(isFullRace);
+  const allLaps = races.flatMap((race) => race.splits);
+  const raceTotals = raceEntries.map(getRaceTotal);
+  const bikeMap = new Map();
+
+  races.forEach((race) => {
+    const bike = race.bike.trim();
+    const key = bike.toLowerCase();
+
+    if (bike && !bikeMap.has(key)) {
+      bikeMap.set(key, bike);
+    }
+  });
+
+  const bikes = [...bikeMap.values()].sort((a, b) => a.localeCompare(b));
+  const firstLap = races[0] ? getRaceBestLap(races[0]) : Number.NaN;
+  const latestLap = races[races.length - 1] ? getRaceBestLap(races[races.length - 1]) : Number.NaN;
+  const lapImprovement =
+    races.length > 1 && Number.isFinite(firstLap) && Number.isFinite(latestLap)
+      ? firstLap - latestLap
+      : Number.NaN;
+
+  return {
+    averageLap: average(allLaps),
+    averageRace: average(raceTotals),
+    bestLap: allLaps.length ? Math.min(...allLaps) : Number.NaN,
+    bestRace: raceTotals.length ? Math.min(...raceTotals) : Number.NaN,
+    bikeNames: bikes,
+    entries: races.length,
+    lapImprovement,
+    lapsLogged: allLaps.length,
+    raceCount: raceEntries.length,
+    singleLapCount: races.length - raceEntries.length,
+  };
+}
+
+function formatStatTime(value, formatter) {
+  return Number.isFinite(value) ? formatter(value) : "-";
+}
+
+function formatImprovement(value) {
+  if (!Number.isFinite(value)) {
+    return "-";
+  }
+
+  if (Math.abs(value) < 0.0005) {
+    return "Even";
+  }
+
+  return value > 0 ? `${formatLap(value)} faster` : `${formatLap(Math.abs(value))} slower`;
+}
+
+function renderStatCard(label, value, detail = "") {
+  return `
+    <div class="rider-stat">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+      ${detail ? `<small>${escapeHtml(detail)}</small>` : ""}
+    </div>
+  `;
+}
+
+function renderRiderStatSheet(stats) {
+  const bikeDetail = stats.bikeNames.length ? stats.bikeNames.join(", ") : "";
+
+  return [
+    renderStatCard("Average lap", formatStatTime(stats.averageLap, formatLap), "All logged laps"),
+    renderStatCard("Average race", formatStatTime(stats.averageRace, formatRace), "Three-lap races"),
+    renderStatCard("Best lap", formatStatTime(stats.bestLap, formatLap), "Fastest single lap"),
+    renderStatCard("Best race", formatStatTime(stats.bestRace, formatRace), "Fastest three-lap race"),
+    renderStatCard("Race starts", String(stats.raceCount), "Completed three-lap runs"),
+    renderStatCard("Single laps", String(stats.singleLapCount), "One-lap logs"),
+    renderStatCard("Lap trend", formatImprovement(stats.lapImprovement), "Latest vs first log"),
+    renderStatCard(
+      "Bikes",
+      stats.bikeNames.length ? String(stats.bikeNames.length) : "-",
+      bikeDetail,
+    ),
+  ].join("");
 }
 
 function renderHistoryChart(races) {

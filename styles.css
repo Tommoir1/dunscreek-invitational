@@ -522,6 +522,55 @@ h1 {
   text-transform: uppercase;
 }
 
+.history-stat-sheet {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: clamp(16px, 3vw, 26px);
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 250, 240, 0.32);
+}
+
+.rider-stat {
+  display: grid;
+  align-content: start;
+  min-height: 112px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(255, 250, 240, 0.72);
+}
+
+.rider-stat span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.rider-stat strong {
+  display: block;
+  margin-top: 8px;
+  color: var(--clay-dark);
+  font-family:
+    "SFMono-Regular",
+    Consolas,
+    "Liberation Mono",
+    monospace;
+  font-size: clamp(1.08rem, 2.5vw, 1.58rem);
+  line-height: 1;
+  overflow-wrap: anywhere;
+}
+
+.rider-stat small {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
 .history-chart {
   padding: clamp(16px, 3vw, 26px);
   border-bottom: 1px solid var(--line);
@@ -1074,6 +1123,21 @@ h1 {
 
   .history-summary strong {
     font-size: 0.92rem;
+  }
+
+  .history-stat-sheet {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding: 14px;
+  }
+
+  .rider-stat {
+    min-height: 98px;
+    padding: 10px;
+  }
+
+  .rider-stat strong {
+    font-size: 1.02rem;
   }
 
   .history-chart {

@@ -28,6 +28,42 @@ function makeRiderKey(name) {
   return name.trim().toLowerCase();
 }
 
+function getEngineClassKey(bike) {
+  const clean = String(bike || "").trim().toLowerCase();
+  const match = clean.match(/\d{2,4}/);
+
+  return match ? match[0] : clean;
+}
+
+function makeLeaderboardClassKey(row) {
+  return `${makeRiderKey(row.name || "")}|${getEngineClassKey(row.bike || "")}`;
+}
+
+function getLeaderboardValue(row, mode = "race") {
+  return mode === "lap" ? row.bestLap : row.bestRaceTotal;
+}
+
+function collapseRowsByEngineClass(rows = [], mode = "race") {
+  const bestByClass = new Map();
+
+  rows.forEach((row) => {
+    const value = getLeaderboardValue(row, mode);
+
+    if (!Number.isFinite(value)) {
+      return;
+    }
+
+    const key = makeLeaderboardClassKey(row);
+    const existing = bestByClass.get(key);
+
+    if (!existing || value < getLeaderboardValue(existing, mode)) {
+      bestByClass.set(key, row);
+    }
+  });
+
+  return [...bestByClass.values()];
+}
+
 function getUniqueRiderCount(races = []) {
   return new Set(
     races
@@ -819,10 +855,7 @@ async function renderHomePage() {
   const timeHeading = document.querySelector("#home-time-heading");
   const renderHomeRows = (mode) => {
     const isRaceMode = mode === "race";
-    const sortedRows = [...rows]
-      .filter((row) =>
-        isRaceMode ? Number.isFinite(row.bestRaceTotal) : Number.isFinite(row.bestLap),
-      )
+    const sortedRows = collapseRowsByEngineClass(rows, mode)
       .sort((a, b) =>
         isRaceMode ? a.bestRaceTotal - b.bestRaceTotal : a.bestLap - b.bestLap,
       );
@@ -1030,12 +1063,15 @@ async function renderLeaderboardPage() {
     const userQuery = userFilter.value.trim().toLowerCase();
     const bike = bikeFilter.value;
     const date = dateFilter.value;
-    const filteredRows = rows.filter((row) => {
-      const matchesUser = row.name.toLowerCase().includes(userQuery);
-      const matchesBike = !bike || row.bike.trim().toLowerCase() === bike;
-      const matchesDate = !date || row.bestRaceDate === date || row.bestLapDate === date;
-      return Number.isFinite(row.bestRaceTotal) && matchesUser && matchesBike && matchesDate;
-    });
+    const filteredRows = collapseRowsByEngineClass(
+      rows.filter((row) => {
+        const matchesUser = row.name.toLowerCase().includes(userQuery);
+        const matchesBike = !bike || row.bike.trim().toLowerCase() === bike;
+        const matchesDate = !date || row.bestRaceDate === date || row.bestLapDate === date;
+        return matchesUser && matchesBike && matchesDate;
+      }),
+      "race",
+    ).sort((a, b) => a.bestRaceTotal - b.bestRaceTotal);
 
     detailRows.innerHTML = filteredRows.length
       ? filteredRows.map(renderDetailedRow).join("")

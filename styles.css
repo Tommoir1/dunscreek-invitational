@@ -392,6 +392,33 @@ h1 {
 .name-cell {
   font-size: clamp(1.04rem, 2vw, 1.32rem);
   font-weight: 900;
+  text-transform: uppercase;
+}
+
+.rider-link {
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-weight: inherit;
+  letter-spacing: 0;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.rider-link:hover {
+  color: var(--clay-dark);
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+}
+
+.rider-link:focus-visible {
+  border-radius: 4px;
+  outline: 3px solid rgba(242, 200, 75, 0.6);
+  outline-offset: 3px;
 }
 
 .time-cell {
@@ -424,6 +451,7 @@ h1 {
   background: rgba(200, 228, 211, 0.7);
   font-size: 0.9rem;
   font-weight: 800;
+  text-transform: uppercase;
 }
 
 .filters {

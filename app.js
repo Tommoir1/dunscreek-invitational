@@ -1,6 +1,7 @@
 const STORAGE_KEY = "dunscreek.localRaces";
 const DEVICE_KEY = "dunscreek.deviceId";
 const REMOTE_OWNED_IDS_KEY = "dunscreek.ownedRemoteRunIds";
+const RIDER_FILTER_KEY = "dunscreek.pendingRiderFilter";
 
 const seedRaces = [];
 
@@ -21,6 +22,55 @@ function getSupabaseEndpoint(query = "") {
 
 function makeRaceKey(name, bike) {
   return `${name.trim().toLowerCase()}|${bike.trim().toLowerCase()}`;
+}
+
+function makeRiderKey(name) {
+  return name.trim().toLowerCase();
+}
+
+function getUniqueRiderCount(races = []) {
+  return new Set(
+    races
+      .map((race) => makeRiderKey(race.name || ""))
+      .filter(Boolean),
+  ).size;
+}
+
+function getBikeOptions(rows = []) {
+  const bikeMap = new Map();
+
+  rows.forEach((row) => {
+    const bike = String(row.bike || "").trim();
+    const key = bike.toLowerCase();
+
+    if (bike && !bikeMap.has(key)) {
+      bikeMap.set(key, bike.toUpperCase());
+    }
+  });
+
+  return [...bikeMap.entries()]
+    .map(([value, label]) => ({ label, value }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function setPendingRiderFilter(name) {
+  try {
+    window.sessionStorage.setItem(RIDER_FILTER_KEY, name);
+  } catch {
+    window.localStorage.setItem(RIDER_FILTER_KEY, name);
+  }
+}
+
+function takePendingRiderFilter() {
+  try {
+    const value = window.sessionStorage.getItem(RIDER_FILTER_KEY) || "";
+    window.sessionStorage.removeItem(RIDER_FILTER_KEY);
+    return value;
+  } catch {
+    const value = window.localStorage.getItem(RIDER_FILTER_KEY) || "";
+    window.localStorage.removeItem(RIDER_FILTER_KEY);
+    return value;
+  }
 }
 
 function cleanupTimer() {
@@ -715,7 +765,9 @@ async function renderRoute() {
 }
 
 async function renderHomePage() {
-  const rows = aggregateRaces(await getAllRaces());
+  const allRaces = await getAllRaces();
+  const rows = aggregateRaces(allRaces);
+  const riderCount = getUniqueRiderCount(allRaces);
 
   view.innerHTML = `
     <section class="hero-board" aria-labelledby="all-time-heading">
@@ -732,7 +784,7 @@ async function renderHomePage() {
             </div>
             <div class="board-meta" aria-label="Leaderboard stats">
               <div class="metric">
-                <strong>${rows.length}</strong>
+                <strong>${riderCount}</strong>
                 <span>Riders</span>
               </div>
               <div class="metric">
@@ -799,6 +851,18 @@ async function renderHomePage() {
       renderHomeRows(button.dataset.homeMode);
     });
   });
+
+  rowsTarget.addEventListener("click", (event) => {
+    const riderButton = event.target.closest("[data-rider-name]");
+
+    if (!riderButton) {
+      return;
+    }
+
+    setPendingRiderFilter(riderButton.dataset.riderName || "");
+    window.location.hash = "leaderboard";
+  });
+
   renderHomeRows("lap");
 }
 
@@ -811,7 +875,11 @@ function renderAllTimeRow(row, index, mode = "lap") {
   return `
     <tr>
       <td class="rank" data-label="Rank">${renderRank(index + 1)}</td>
-      <td class="name-cell" data-label="Name">${escapeHtml(row.name)}</td>
+      <td class="name-cell" data-label="Name">
+        <button class="rider-link" type="button" data-rider-name="${escapeAttribute(row.name)}">
+          ${escapeHtml(row.name)}
+        </button>
+      </td>
       <td class="time-cell" data-label="${label}">${time}</td>
       <td data-label="Bike"><span class="bike-pill">${escapeHtml(row.bike)}</span></td>
       <td class="date-cell" data-label="Date">${formatDate(date)}</td>
@@ -824,9 +892,7 @@ async function renderLeaderboardPage() {
   const rows = aggregateRaces(allRaces).sort(
     (a, b) => a.bestRaceTotal - b.bestRaceTotal,
   );
-  const bikes = [...new Set(rows.map((row) => row.bike))].sort((a, b) =>
-    a.localeCompare(b),
-  );
+  const bikes = getBikeOptions(rows);
 
   view.innerHTML = `
     <section class="detail-grid" aria-labelledby="detail-heading">
@@ -844,7 +910,7 @@ async function renderLeaderboardPage() {
             <label for="bike-filter">Bike</label>
             <select id="bike-filter">
               <option value="">All bikes</option>
-              ${bikes.map((bike) => `<option value="${escapeAttribute(bike)}">${escapeHtml(bike)}</option>`).join("")}
+              ${bikes.map((bike) => `<option value="${escapeAttribute(bike.value)}">${escapeHtml(bike.label)}</option>`).join("")}
             </select>
           </div>
           <div class="field">
@@ -905,6 +971,7 @@ async function renderLeaderboardPage() {
   const userFilter = document.querySelector("#user-filter");
   const bikeFilter = document.querySelector("#bike-filter");
   const dateFilter = document.querySelector("#date-filter");
+  const detailRows = document.querySelector("#detail-rows");
   const historyPanel = document.querySelector("#rider-history-panel");
   const historyHeading = document.querySelector("#history-heading");
   const historySummary = document.querySelector("#history-summary");
@@ -921,7 +988,7 @@ async function renderLeaderboardPage() {
     const matchedRaces = allRaces
       .filter((race) => {
         const matchesUser = race.name.toLowerCase().includes(userQuery);
-        const matchesBike = !bike || race.bike === bike;
+        const matchesBike = !bike || race.bike.trim().toLowerCase() === bike;
         const matchesDate = !date || race.date === date;
         return matchesUser && matchesBike && matchesDate;
       })
@@ -965,12 +1032,12 @@ async function renderLeaderboardPage() {
     const date = dateFilter.value;
     const filteredRows = rows.filter((row) => {
       const matchesUser = row.name.toLowerCase().includes(userQuery);
-      const matchesBike = !bike || row.bike === bike;
+      const matchesBike = !bike || row.bike.trim().toLowerCase() === bike;
       const matchesDate = !date || row.bestRaceDate === date || row.bestLapDate === date;
       return Number.isFinite(row.bestRaceTotal) && matchesUser && matchesBike && matchesDate;
     });
 
-    document.querySelector("#detail-rows").innerHTML = filteredRows.length
+    detailRows.innerHTML = filteredRows.length
       ? filteredRows.map(renderDetailedRow).join("")
       : `<tr><td colspan="7" class="empty-state">No times match those filters.</td></tr>`;
     renderHistory(userQuery, bike, date);
@@ -979,6 +1046,24 @@ async function renderLeaderboardPage() {
   userFilter.addEventListener("input", renderRows);
   bikeFilter.addEventListener("change", renderRows);
   dateFilter.addEventListener("change", renderRows);
+  detailRows.addEventListener("click", (event) => {
+    const riderButton = event.target.closest("[data-rider-name]");
+
+    if (!riderButton) {
+      return;
+    }
+
+    userFilter.value = riderButton.dataset.riderName || "";
+    renderRows();
+    historyPanel.scrollIntoView({ block: "start", behavior: "smooth" });
+  });
+
+  const pendingRider = takePendingRiderFilter();
+
+  if (pendingRider) {
+    userFilter.value = pendingRider;
+  }
+
   renderRows();
 }
 
@@ -1001,7 +1086,7 @@ function getRiderStats(races) {
     const key = bike.toLowerCase();
 
     if (bike && !bikeMap.has(key)) {
-      bikeMap.set(key, bike);
+      bikeMap.set(key, bike.toUpperCase());
     }
   });
 
@@ -1142,7 +1227,11 @@ function renderDetailedRow(row, index) {
   return `
     <tr>
       <td class="rank" data-label="Rank">${renderRank(index + 1)}</td>
-      <td class="name-cell" data-label="Name">${escapeHtml(row.name)}</td>
+      <td class="name-cell" data-label="Name">
+        <button class="rider-link" type="button" data-rider-name="${escapeAttribute(row.name)}">
+          ${escapeHtml(row.name)}
+        </button>
+      </td>
       <td data-label="Bike"><span class="bike-pill">${escapeHtml(row.bike)}</span></td>
       <td class="time-cell" data-label="Best race">${formatRace(row.bestRaceTotal)}</td>
       <td class="date-cell" data-label="Date">${formatDate(row.bestRaceDate)}</td>

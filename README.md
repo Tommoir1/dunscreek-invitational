@@ -35,7 +35,7 @@ Single-lap logging also needs the latest SQL because `lap2` and `lap3` are optio
 
 ## Track Conditions
 
-The home page estimates the day's track condition from Open-Meteo rain data near Duns Creek. It labels the surface as likely dry, tacky, or muddy using current rain plus the last 24 and 48 hours of precipitation. Adjust `trackLatitude`, `trackLongitude`, and `trackWeatherLabel` in `config.js` if the track pin should be more precise.
+The home page estimates the day's track condition from Open-Meteo rain data near Duns Creek. It labels the surface as likely dry, tacky, or muddy using current rain plus the last 24 and 48 hours of precipitation, and also shows current temperature with a weather emoji from the live weather code. Adjust `trackLatitude`, `trackLongitude`, and `trackWeatherLabel` in `config.js` if the track pin should be more precise.
 
 ## Deploy Static Site
 

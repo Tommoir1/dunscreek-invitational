@@ -325,6 +325,7 @@ h1 {
 }
 
 .conditions-top span,
+.conditions-current span:not(.weather-emoji),
 .conditions-card small,
 .conditions-rain span {
   color: var(--muted);
@@ -339,6 +340,40 @@ h1 {
   line-height: 1;
   text-align: right;
   text-transform: uppercase;
+}
+
+.conditions-current {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(23, 19, 15, 0.12);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 250, 240, 0.58);
+}
+
+.conditions-current div {
+  min-width: 0;
+  text-align: right;
+}
+
+.conditions-current strong {
+  display: block;
+  color: var(--ink);
+  font-size: 1.65rem;
+  line-height: 1;
+}
+
+.conditions-current span:not(.weather-emoji) {
+  display: block;
+  margin-top: 3px;
+}
+
+.weather-emoji {
+  flex: 0 0 auto;
+  font-size: 2rem;
+  line-height: 1;
 }
 
 .conditions-card p {

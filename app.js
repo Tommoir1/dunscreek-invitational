@@ -780,13 +780,14 @@ async function saveRaceEntry(race) {
 
 function getTrackWeatherUrl() {
   const params = new URLSearchParams({
-    current: "precipitation",
+    current: "temperature_2m,precipitation,weather_code,cloud_cover,is_day",
     daily: "precipitation_sum",
     forecast_days: "1",
     hourly: "precipitation",
     latitude: String(trackWeatherConfig.latitude),
     longitude: String(trackWeatherConfig.longitude),
     past_days: "2",
+    temperature_unit: "celsius",
     timezone: "Australia/Sydney",
   });
 
@@ -814,6 +815,12 @@ function toRainNumber(value) {
   const parsed = Number(value);
 
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function toOptionalNumber(value) {
+  const parsed = Number(value);
+
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function getRainSince(hourlyRows, referenceTime, hours) {
@@ -865,12 +872,16 @@ async function fetchTrackRainReport() {
   const currentRain = toRainNumber(data.current?.precipitation);
 
   return {
+    cloudCover: toOptionalNumber(data.current?.cloud_cover),
     currentRain,
+    isDay: data.current?.is_day !== 0,
     last6Rain: getRainSince(hourlyRows, referenceTime, 6),
     last24Rain: getRainSince(hourlyRows, referenceTime, 24),
     last48Rain: getRainSince(hourlyRows, referenceTime, 48),
     referenceTime,
+    temperature: toOptionalNumber(data.current?.temperature_2m),
     todayRain: getDailyRain(data, todayKey),
+    weatherCode: toOptionalNumber(data.current?.weather_code),
   };
 }
 
@@ -920,6 +931,10 @@ function formatRain(value) {
   return `${value.toFixed(precision)} mm`;
 }
 
+function formatTemperature(value) {
+  return Number.isFinite(value) ? `${Math.round(value)}°C` : "--";
+}
+
 function formatWeatherTime(value) {
   if (!value) {
     return "just now";
@@ -931,11 +946,73 @@ function formatWeatherTime(value) {
   }).format(value);
 }
 
+function getWeatherNow(report) {
+  const code = report.weatherCode;
+  const isDay = report.isDay !== false;
+
+  if ([95, 96, 99].includes(code)) {
+    return { emoji: "⛈️", label: "Storm" };
+  }
+
+  if (code >= 80 && code <= 82) {
+    return { emoji: "🌦️", label: "Showers" };
+  }
+
+  if ((code >= 61 && code <= 67) || (code >= 51 && code <= 57)) {
+    return { emoji: "🌧️", label: code >= 61 ? "Rain" : "Drizzle" };
+  }
+
+  if (code >= 71 && code <= 77) {
+    return { emoji: "🌨️", label: "Snow" };
+  }
+
+  if (code === 45 || code === 48) {
+    return { emoji: "🌫️", label: "Fog" };
+  }
+
+  if (code === 3) {
+    return { emoji: "☁️", label: "Overcast" };
+  }
+
+  if (code === 2) {
+    return { emoji: "⛅", label: "Cloudy" };
+  }
+
+  if (code === 1) {
+    return { emoji: isDay ? "🌤️" : "🌙", label: "Mostly clear" };
+  }
+
+  if (code === 0) {
+    return { emoji: isDay ? "☀️" : "🌙", label: isDay ? "Clear" : "Clear night" };
+  }
+
+  if (Number.isFinite(report.cloudCover)) {
+    if (report.cloudCover >= 80) {
+      return { emoji: "☁️", label: "Cloudy" };
+    }
+
+    if (report.cloudCover >= 35) {
+      return { emoji: isDay ? "⛅" : "🌙", label: "Partly cloudy" };
+    }
+  }
+
+  return { emoji: "🌡️", label: "Weather now" };
+}
+
 function renderTrackConditions(condition, report) {
+  const weatherNow = getWeatherNow(report);
+
   return `
     <div class="conditions-top">
       <span>Today at ${escapeHtml(trackWeatherConfig.label)}</span>
       <strong>${escapeHtml(condition.title)}</strong>
+    </div>
+    <div class="conditions-current" aria-label="Current weather">
+      <span class="weather-emoji" role="img" aria-label="${escapeAttribute(weatherNow.label)}">${escapeHtml(weatherNow.emoji)}</span>
+      <div>
+        <strong>${formatTemperature(report.temperature)}</strong>
+        <span>${escapeHtml(weatherNow.label)}</span>
+      </div>
     </div>
     <p>${escapeHtml(condition.reason)}</p>
     <div class="conditions-rain" aria-label="Recent rain totals">

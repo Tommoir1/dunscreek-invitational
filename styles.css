@@ -780,7 +780,7 @@ h1 {
 }
 
 .history-table {
-  min-width: 820px;
+  min-width: 980px;
 }
 
 .entry-type-pill {
@@ -795,6 +795,56 @@ h1 {
   font-size: 0.8rem;
   font-weight: 900;
   text-transform: uppercase;
+}
+
+.weather-snapshot {
+  display: inline-grid;
+  gap: 3px;
+  min-width: 136px;
+  max-width: 210px;
+}
+
+.weather-snapshot-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.weather-snapshot-main strong {
+  color: var(--clay-dark);
+  font-size: 0.96rem;
+}
+
+.weather-snapshot-main span:last-child,
+.weather-snapshot small,
+.weather-empty {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.weather-snapshot-main .weather-snapshot-emoji {
+  color: inherit;
+  font-size: 1.1rem;
+  font-weight: 400;
+  line-height: 1;
+  text-transform: none;
+}
+
+.weather-empty {
+  display: inline-block;
+}
+
+.recent-weather {
+  margin-top: 7px;
+}
+
+.recent-weather .weather-snapshot {
+  max-width: none;
 }
 
 .history-empty {

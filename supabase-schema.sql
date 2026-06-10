@@ -7,18 +7,79 @@ create table if not exists public.runs (
   lap1 numeric not null check (lap1 > 0),
   lap2 numeric check (lap2 > 0),
   lap3 numeric check (lap3 > 0),
+  weather_condition text,
+  weather_condition_title text,
+  weather_label text,
+  weather_emoji text,
+  weather_temperature numeric,
+  weather_current_rain numeric,
+  weather_24h_rain numeric,
+  weather_48h_rain numeric,
+  weather_code integer,
+  weather_cloud_cover numeric,
+  weather_recorded_at timestamptz,
   created_at timestamptz not null default now()
 );
 
 alter table public.runs add column if not exists device_id text;
 alter table public.runs alter column lap2 drop not null;
 alter table public.runs alter column lap3 drop not null;
+alter table public.runs add column if not exists weather_condition text;
+alter table public.runs add column if not exists weather_condition_title text;
+alter table public.runs add column if not exists weather_label text;
+alter table public.runs add column if not exists weather_emoji text;
+alter table public.runs add column if not exists weather_temperature numeric;
+alter table public.runs add column if not exists weather_current_rain numeric;
+alter table public.runs add column if not exists weather_24h_rain numeric;
+alter table public.runs add column if not exists weather_48h_rain numeric;
+alter table public.runs add column if not exists weather_code integer;
+alter table public.runs add column if not exists weather_cloud_cover numeric;
+alter table public.runs add column if not exists weather_recorded_at timestamptz;
 
 alter table public.runs enable row level security;
 
 revoke select on public.runs from anon;
-grant select (id, name, bike, race_date, lap1, lap2, lap3, created_at) on public.runs to anon;
-grant insert (name, bike, device_id, race_date, lap1, lap2, lap3) on public.runs to anon;
+grant select (
+  id,
+  name,
+  bike,
+  race_date,
+  lap1,
+  lap2,
+  lap3,
+  weather_condition,
+  weather_condition_title,
+  weather_label,
+  weather_emoji,
+  weather_temperature,
+  weather_current_rain,
+  weather_24h_rain,
+  weather_48h_rain,
+  weather_code,
+  weather_cloud_cover,
+  weather_recorded_at,
+  created_at
+) on public.runs to anon;
+grant insert (
+  name,
+  bike,
+  device_id,
+  race_date,
+  lap1,
+  lap2,
+  lap3,
+  weather_condition,
+  weather_condition_title,
+  weather_label,
+  weather_emoji,
+  weather_temperature,
+  weather_current_rain,
+  weather_24h_rain,
+  weather_48h_rain,
+  weather_code,
+  weather_cloud_cover,
+  weather_recorded_at
+) on public.runs to anon;
 grant delete on public.runs to anon;
 
 drop policy if exists "Public can read runs" on public.runs;
@@ -43,6 +104,20 @@ with check (
     or (lap2 > 0 and lap3 > 0)
   )
   and (device_id is null or length(trim(device_id)) between 20 and 120)
+  and (weather_condition is null or weather_condition in ('dry', 'tacky', 'muddy', 'unknown'))
+  and (weather_condition_title is null or length(trim(weather_condition_title)) between 1 and 80)
+  and (weather_label is null or length(trim(weather_label)) between 1 and 80)
+  and (weather_emoji is null or length(trim(weather_emoji)) between 1 and 12)
+  and (weather_temperature is null or weather_temperature between -20 and 60)
+  and (weather_current_rain is null or weather_current_rain >= 0)
+  and (weather_24h_rain is null or weather_24h_rain >= 0)
+  and (weather_48h_rain is null or weather_48h_rain >= 0)
+  and (weather_code is null or weather_code between 0 and 99)
+  and (weather_cloud_cover is null or weather_cloud_cover between 0 and 100)
+  and (
+    weather_recorded_at is null
+    or weather_recorded_at between timestamptz '2020-01-01' and timestamptz '2100-01-01'
+  )
 );
 
 drop policy if exists "Public can delete own device runs" on public.runs;

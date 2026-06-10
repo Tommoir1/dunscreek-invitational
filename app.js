@@ -15,6 +15,21 @@ const supabaseConfig = {
   url: (publicConfig.supabaseUrl || "").replace(/\/$/, ""),
 };
 const hasSupabase = Boolean(supabaseConfig.url && supabaseConfig.anonKey);
+const remoteRaceColumns = ["id", "name", "bike", "race_date", "lap1", "lap2", "lap3", "created_at"];
+const remoteWeatherColumns = [
+  "weather_condition",
+  "weather_condition_title",
+  "weather_label",
+  "weather_emoji",
+  "weather_temperature",
+  "weather_current_rain",
+  "weather_24h_rain",
+  "weather_48h_rain",
+  "weather_code",
+  "weather_cloud_cover",
+  "weather_recorded_at",
+];
+let remoteWeatherColumnsAvailable = true;
 const trackWeatherConfig = {
   label: publicConfig.trackWeatherLabel || "Duns Creek",
   latitude: getConfigNumber(publicConfig.trackLatitude, -32.6026),
@@ -225,6 +240,55 @@ function normalizeRace(row) {
     id: row.id ? String(row.id) : "",
     name: String(row.name || "").trim(),
     splits,
+    weather: normalizeWeatherSnapshot(row),
+  };
+}
+
+function normalizeWeatherSnapshot(row) {
+  const source = row.weather || {};
+  const weather = {
+    cloudCover: toOptionalNumber(row.weather_cloud_cover ?? source.cloudCover),
+    condition: String(row.weather_condition || source.condition || "").trim(),
+    conditionTitle: String(row.weather_condition_title || source.conditionTitle || "").trim(),
+    currentRain: toOptionalNumber(row.weather_current_rain ?? source.currentRain),
+    emoji: String(row.weather_emoji || source.emoji || "").trim(),
+    label: String(row.weather_label || source.label || "").trim(),
+    last24Rain: toOptionalNumber(row.weather_24h_rain ?? source.last24Rain),
+    last48Rain: toOptionalNumber(row.weather_48h_rain ?? source.last48Rain),
+    recordedAt: String(row.weather_recorded_at || source.recordedAt || "").trim(),
+    temperature: toOptionalNumber(row.weather_temperature ?? source.temperature),
+    weatherCode: toOptionalNumber(row.weather_code ?? source.weatherCode),
+  };
+  const hasWeather = Object.values(weather).some(
+    (value) => value !== null && String(value).trim() !== "",
+  );
+
+  return hasWeather ? weather : null;
+}
+
+function isMissingWeatherColumnError(message = "") {
+  const clean = String(message).toLowerCase();
+
+  return remoteWeatherColumns.some((column) => clean.includes(column.toLowerCase()));
+}
+
+function makeRemoteWeatherBody(weather) {
+  if (!weather) {
+    return {};
+  }
+
+  return {
+    weather_24h_rain: weather.last24Rain,
+    weather_48h_rain: weather.last48Rain,
+    weather_cloud_cover: weather.cloudCover,
+    weather_code: weather.weatherCode,
+    weather_condition: weather.condition,
+    weather_condition_title: weather.conditionTitle,
+    weather_current_rain: weather.currentRain,
+    weather_emoji: weather.emoji,
+    weather_label: weather.label,
+    weather_recorded_at: weather.recordedAt,
+    weather_temperature: weather.temperature,
   };
 }
 
@@ -233,17 +297,31 @@ async function readRemoteRaces() {
     return [];
   }
 
-  const response = await fetch(
-    getSupabaseEndpoint(
-      "?select=id,name,bike,race_date,lap1,lap2,lap3,created_at&order=created_at.desc",
-    ),
-    {
-      headers: {
-        apikey: supabaseConfig.anonKey,
-        Authorization: `Bearer ${supabaseConfig.anonKey}`,
+  const fetchRows = async (includeWeather) => {
+    const columns = includeWeather
+      ? [...remoteRaceColumns, ...remoteWeatherColumns]
+      : remoteRaceColumns;
+
+    return fetch(
+      getSupabaseEndpoint(`?select=${columns.join(",")}&order=created_at.desc`),
+      {
+        headers: {
+          apikey: supabaseConfig.anonKey,
+          Authorization: `Bearer ${supabaseConfig.anonKey}`,
+        },
       },
-    },
-  );
+    );
+  };
+
+  let response = await fetchRows(remoteWeatherColumnsAvailable);
+
+  if (!response.ok && response.status === 400 && remoteWeatherColumnsAvailable) {
+    const error = await response.clone().json().catch(() => null);
+    if (isMissingWeatherColumnError(error?.message)) {
+      remoteWeatherColumnsAvailable = false;
+      response = await fetchRows(false);
+    }
+  }
 
   if (!response.ok) {
     throw new Error(`Could not load leaderboard: ${response.status}`);
@@ -254,7 +332,7 @@ async function readRemoteRaces() {
 }
 
 async function writeRemoteRace(race) {
-  const insertRace = async (includeDeviceId) => {
+  const insertRace = async ({ includeDeviceId, includeWeather }) => {
     const body = {
       bike: race.bike,
       lap1: race.splits[0],
@@ -266,6 +344,10 @@ async function writeRemoteRace(race) {
 
     if (includeDeviceId) {
       body.device_id = getDeviceId();
+    }
+
+    if (includeWeather && race.weather) {
+      Object.assign(body, makeRemoteWeatherBody(race.weather));
     }
 
     const response = await fetch(getSupabaseEndpoint("?select=id"), {
@@ -282,15 +364,36 @@ async function writeRemoteRace(race) {
     return response;
   };
 
-  let response = await insertRace(true);
-  let deviceProtected = true;
+  let insertOptions = {
+    includeDeviceId: true,
+    includeWeather: Boolean(race.weather && remoteWeatherColumnsAvailable),
+  };
+  let response = await insertRace(insertOptions);
 
-  if (!response.ok && response.status === 400) {
+  for (let attempt = 0; !response.ok && attempt < 3; attempt += 1) {
     const error = await response.clone().json().catch(() => null);
-    if (error?.message?.includes("device_id")) {
-      response = await insertRace(false);
-      deviceProtected = false;
+    const message = error?.message || "";
+
+    if (
+      insertOptions.includeWeather &&
+      (response.status === 403 ||
+        (response.status === 400 && isMissingWeatherColumnError(message)))
+    ) {
+      if (response.status === 400) {
+        remoteWeatherColumnsAvailable = false;
+      }
+      insertOptions = { ...insertOptions, includeWeather: false };
+      response = await insertRace(insertOptions);
+      continue;
     }
+
+    if (response.status === 400 && insertOptions.includeDeviceId && message.includes("device_id")) {
+      insertOptions = { ...insertOptions, includeDeviceId: false };
+      response = await insertRace(insertOptions);
+      continue;
+    }
+
+    break;
   }
 
   if (!response.ok) {
@@ -304,11 +407,14 @@ async function writeRemoteRace(race) {
   const rows = await response.json().catch(() => []);
   const id = rows[0]?.id ? String(rows[0].id) : "";
 
-  if (id && deviceProtected) {
+  if (id && insertOptions.includeDeviceId) {
     markOwnedRemoteId(id);
   }
 
-  return id;
+  return {
+    id,
+    weatherStored: Boolean(insertOptions.includeWeather && race.weather),
+  };
 }
 
 async function deleteRemoteRace(race) {
@@ -765,14 +871,29 @@ async function saveRaceEntry(race) {
     return { alerts: [], status: "" };
   }
 
-  const result = await getSaveResult(race);
+  const [result, weather] = await Promise.all([
+    getSaveResult(race),
+    getRaceWeatherSnapshot().catch(() => null),
+  ]);
+  const raceToSave = weather ? { ...race, weather } : race;
 
   if (hasSupabase) {
-    await writeRemoteRace(race);
+    const remoteResult = await writeRemoteRace(raceToSave);
+    if (weather && !remoteResult.weatherStored) {
+      result.status = `${result.status} Weather needs the latest Supabase schema to save.`;
+    }
   } else {
     const localRaces = readLocalRaces();
-    localRaces.unshift({ ...race, createdAt: new Date().toISOString(), id: createRunId("local") });
+    localRaces.unshift({
+      ...raceToSave,
+      createdAt: new Date().toISOString(),
+      id: createRunId("local"),
+    });
     writeLocalRaces(localRaces);
+  }
+
+  if (!weather) {
+    result.status = `${result.status} Weather unavailable for this log.`;
   }
 
   return result;
@@ -818,6 +939,10 @@ function toRainNumber(value) {
 }
 
 function toOptionalNumber(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
   const parsed = Number(value);
 
   return Number.isFinite(parsed) ? parsed : null;
@@ -946,6 +1071,42 @@ function formatWeatherTime(value) {
   }).format(value);
 }
 
+function hasWeatherSnapshot(weather) {
+  return Boolean(
+    weather &&
+      [
+        weather.condition,
+        weather.conditionTitle,
+        weather.currentRain,
+        weather.emoji,
+        weather.label,
+        weather.last24Rain,
+        weather.last48Rain,
+        weather.temperature,
+      ].some((value) => value !== null && value !== undefined && String(value).trim() !== ""),
+  );
+}
+
+function renderWeatherSnapshot(weather) {
+  if (!hasWeatherSnapshot(weather)) {
+    return `<span class="weather-empty">No weather saved</span>`;
+  }
+
+  const label = weather.label || "Weather";
+  const conditionTitle = weather.conditionTitle || "Condition saved";
+
+  return `
+    <div class="weather-snapshot" data-weather-condition="${escapeAttribute(weather.condition || "unknown")}">
+      <div class="weather-snapshot-main">
+        <span class="weather-snapshot-emoji" aria-hidden="true">${escapeHtml(weather.emoji || "🌡️")}</span>
+        <strong>${formatTemperature(weather.temperature)}</strong>
+        <span>${escapeHtml(label)}</span>
+      </div>
+      <small>${escapeHtml(conditionTitle)} / 24h ${formatRain(weather.last24Rain)}</small>
+    </div>
+  `;
+}
+
 function getWeatherNow(report) {
   const code = report.weatherCode;
   const isDay = report.isDay !== false;
@@ -997,6 +1158,31 @@ function getWeatherNow(report) {
   }
 
   return { emoji: "🌡️", label: "Weather now" };
+}
+
+function makeWeatherSnapshot(report) {
+  const condition = estimateTrackCondition(report);
+  const weatherNow = getWeatherNow(report);
+
+  return {
+    cloudCover: report.cloudCover,
+    condition: condition.key,
+    conditionTitle: condition.title,
+    currentRain: report.currentRain,
+    emoji: weatherNow.emoji,
+    label: weatherNow.label,
+    last24Rain: report.last24Rain,
+    last48Rain: report.last48Rain,
+    recordedAt: new Date().toISOString(),
+    temperature: report.temperature,
+    weatherCode: report.weatherCode,
+  };
+}
+
+async function getRaceWeatherSnapshot() {
+  const report = await fetchTrackRainReport();
+
+  return makeWeatherSnapshot(report);
 }
 
 function renderTrackConditions(condition, report) {
@@ -1296,6 +1482,7 @@ async function renderLeaderboardPage() {
                 <th scope="col">Bike</th>
                 <th scope="col">Type</th>
                 <th scope="col">Time</th>
+                <th scope="col">Weather</th>
                 <th scope="col">Lap splits</th>
               </tr>
             </thead>
@@ -1361,7 +1548,7 @@ async function renderLeaderboardPage() {
       : `<div class="history-empty">No logged times match this rider.</div>`;
     historyRows.innerHTML = matchedRaces.length
       ? [...matchedRaces].reverse().map(renderHistoryRow).join("")
-      : `<tr><td colspan="6" class="empty-state">No logged times match this rider.</td></tr>`;
+      : `<tr><td colspan="7" class="empty-state">No logged times match this rider.</td></tr>`;
   };
 
   const renderRows = () => {
@@ -1613,6 +1800,7 @@ function renderHistoryRow(race) {
       <td data-label="Bike"><span class="bike-pill">${escapeHtml(race.bike)}</span></td>
       <td data-label="Type"><span class="entry-type-pill">${getEntryType(race)}</span></td>
       <td class="time-cell" data-label="Time">${formatEntryTime(race)}</td>
+      <td data-label="Weather">${renderWeatherSnapshot(race.weather)}</td>
       <td data-label="Splits">
         <div class="split-list" aria-label="Logged lap splits">
           ${race.splits.map((split) => `<span>${formatLap(split)}</span>`).join("")}
@@ -2034,6 +2222,7 @@ async function renderRecentEntries() {
           <div>
             <strong>${escapeHtml(race.name)}</strong>
             <span>${escapeHtml(race.bike)} / ${formatDate(race.date)} / ${race.splits.map(formatLap).join(" / ")}</span>
+            <div class="recent-weather">${renderWeatherSnapshot(race.weather)}</div>
           </div>
           <div class="recent-row-actions">
             <span class="time-cell">${formatEntryTime(race)}</span>

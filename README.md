@@ -33,9 +33,11 @@ If you already created the table, run the latest `supabase-schema.sql` again in 
 
 Single-lap logging also needs the latest SQL because `lap2` and `lap3` are optional for one-lap entries. Three-lap entries still power race records, while single-lap entries count toward best lap leaderboards and rider history.
 
+Weather snapshots on saved times also need the latest SQL because new nullable weather columns are added to each run. If the database has not been updated yet, the site will still save lap times, but the weather fields will be skipped until `supabase-schema.sql` is run again.
+
 ## Track Conditions
 
-The home page estimates the day's track condition from Open-Meteo rain data near Duns Creek. It labels the surface as likely dry, tacky, or muddy using current rain plus the last 24 and 48 hours of precipitation, and also shows current temperature with a weather emoji from the live weather code. Adjust `trackLatitude`, `trackLongitude`, and `trackWeatherLabel` in `config.js` if the track pin should be more precise.
+The home page estimates the day's track condition from Open-Meteo rain data near Duns Creek. It labels the surface as likely dry, tacky, or muddy using current rain plus the last 24 and 48 hours of precipitation, and also shows current temperature with a weather emoji from the live weather code. New logs save that same weather snapshot so rider history can compare times against temperature, weather, and recent rain. Adjust `trackLatitude`, `trackLongitude`, and `trackWeatherLabel` in `config.js` if the track pin should be more precise.
 
 ## Deploy Static Site
 

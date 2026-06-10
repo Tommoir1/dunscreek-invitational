@@ -21,6 +21,9 @@ window.DUNSCREEK_CONFIG = {
   supabaseAnonKey: "YOUR_SUPABASE_ANON_PUBLIC_KEY",
   supabaseTable: "runs",
   supabaseUrl: "https://YOUR_PROJECT_REF.supabase.co",
+  trackLatitude: -32.6026,
+  trackLongitude: 151.6532,
+  trackWeatherLabel: "Duns Creek",
 };
 ```
 
@@ -29,6 +32,10 @@ The anon key is intended to be public when Row Level Security policies are set c
 If you already created the table, run the latest `supabase-schema.sql` again in the Supabase SQL editor. Existing rows without `device_id` will stay on the leaderboard, but they will not show the site delete button. New logs saved from a phone or browser can be deleted from that same device.
 
 Single-lap logging also needs the latest SQL because `lap2` and `lap3` are optional for one-lap entries. Three-lap entries still power race records, while single-lap entries count toward best lap leaderboards and rider history.
+
+## Track Conditions
+
+The home page estimates the day's track condition from Open-Meteo rain data near Duns Creek. It labels the surface as likely dry, tacky, or muddy using current rain plus the last 24 and 48 hours of precipitation. Adjust `trackLatitude`, `trackLongitude`, and `trackWeatherLabel` in `config.js` if the track pin should be more precise.
 
 ## Deploy Static Site
 

@@ -15,6 +15,17 @@ const supabaseConfig = {
   url: (publicConfig.supabaseUrl || "").replace(/\/$/, ""),
 };
 const hasSupabase = Boolean(supabaseConfig.url && supabaseConfig.anonKey);
+const trackWeatherConfig = {
+  label: publicConfig.trackWeatherLabel || "Duns Creek",
+  latitude: getConfigNumber(publicConfig.trackLatitude, -32.6026),
+  longitude: getConfigNumber(publicConfig.trackLongitude, 151.6532),
+};
+
+function getConfigNumber(value, fallback) {
+  const parsed = Number(value);
+
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
 
 function getSupabaseEndpoint(query = "") {
   return `${supabaseConfig.url}/rest/v1/${supabaseConfig.table}${query}`;
@@ -767,6 +778,215 @@ async function saveRaceEntry(race) {
   return result;
 }
 
+function getTrackWeatherUrl() {
+  const params = new URLSearchParams({
+    current: "precipitation",
+    daily: "precipitation_sum",
+    forecast_days: "1",
+    hourly: "precipitation",
+    latitude: String(trackWeatherConfig.latitude),
+    longitude: String(trackWeatherConfig.longitude),
+    past_days: "2",
+    timezone: "Australia/Sydney",
+  });
+
+  return `https://api.open-meteo.com/v1/forecast?${params.toString()}`;
+}
+
+function parseWeatherTime(value) {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = String(value).replace(" ", "T");
+  const [datePart, timePart = "00:00"] = normalized.split("T");
+  const [year, month, day] = datePart.split("-").map(Number);
+  const [hour = 0, minute = 0] = timePart.split(":").map(Number);
+
+  if (![year, month, day, hour, minute].every(Number.isFinite)) {
+    return null;
+  }
+
+  return new Date(year, month - 1, day, hour, minute);
+}
+
+function toRainNumber(value) {
+  const parsed = Number(value);
+
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getRainSince(hourlyRows, referenceTime, hours) {
+  if (!referenceTime) {
+    return 0;
+  }
+
+  const windowMs = hours * 60 * 60 * 1000;
+
+  return hourlyRows.reduce((sum, row) => {
+    if (!row.date) {
+      return sum;
+    }
+
+    const difference = referenceTime.getTime() - row.date.getTime();
+
+    return difference >= 0 && difference <= windowMs ? sum + row.rain : sum;
+  }, 0);
+}
+
+function getDailyRain(data, dateKey) {
+  const dayIndex = data.daily?.time?.indexOf(dateKey) ?? -1;
+
+  if (dayIndex < 0) {
+    return 0;
+  }
+
+  return toRainNumber(data.daily?.precipitation_sum?.[dayIndex]);
+}
+
+async function fetchTrackRainReport() {
+  const response = await fetch(getTrackWeatherUrl());
+
+  if (!response.ok) {
+    throw new Error("Could not load track weather.");
+  }
+
+  const data = await response.json();
+  const hourlyRows = (data.hourly?.time || []).map((time, index) => ({
+    date: parseWeatherTime(time),
+    rain: toRainNumber(data.hourly?.precipitation?.[index]),
+  }));
+  const currentTime = parseWeatherTime(data.current?.time);
+  const latestHourlyTime = hourlyRows
+    .filter((row) => row.date)
+    .reduce((latest, row) => (!latest || row.date > latest ? row.date : latest), null);
+  const referenceTime = currentTime || latestHourlyTime;
+  const todayKey = data.current?.time?.slice(0, 10) || new Date().toISOString().slice(0, 10);
+  const currentRain = toRainNumber(data.current?.precipitation);
+
+  return {
+    currentRain,
+    last6Rain: getRainSince(hourlyRows, referenceTime, 6),
+    last24Rain: getRainSince(hourlyRows, referenceTime, 24),
+    last48Rain: getRainSince(hourlyRows, referenceTime, 48),
+    referenceTime,
+    todayRain: getDailyRain(data, todayKey),
+  };
+}
+
+function estimateTrackCondition(report) {
+  const isMuddy =
+    report.currentRain >= 1 ||
+    report.last6Rain >= 4 ||
+    report.last24Rain >= 10 ||
+    report.last48Rain >= 18;
+  const isTacky =
+    report.currentRain >= 0.1 ||
+    report.last6Rain >= 0.4 ||
+    report.last24Rain >= 1.5 ||
+    report.last48Rain >= 4 ||
+    report.todayRain >= 1;
+
+  if (isMuddy) {
+    return {
+      key: "muddy",
+      reason: "Recent rain is high enough that low spots may be slick.",
+      title: "Likely muddy",
+    };
+  }
+
+  if (isTacky) {
+    return {
+      key: "tacky",
+      reason: "There is enough recent rain to keep the surface grippy.",
+      title: "Likely tacky",
+    };
+  }
+
+  return {
+    key: "dry",
+    reason: "Little recent rain is showing near the track.",
+    title: "Likely dry",
+  };
+}
+
+function formatRain(value) {
+  if (!Number.isFinite(value)) {
+    return "-";
+  }
+
+  const precision = value >= 10 ? 0 : 1;
+
+  return `${value.toFixed(precision)} mm`;
+}
+
+function formatWeatherTime(value) {
+  if (!value) {
+    return "just now";
+  }
+
+  return new Intl.DateTimeFormat("en-AU", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(value);
+}
+
+function renderTrackConditions(condition, report) {
+  return `
+    <div class="conditions-top">
+      <span>Today at ${escapeHtml(trackWeatherConfig.label)}</span>
+      <strong>${escapeHtml(condition.title)}</strong>
+    </div>
+    <p>${escapeHtml(condition.reason)}</p>
+    <div class="conditions-rain" aria-label="Recent rain totals">
+      <span>Now ${formatRain(report.currentRain)}</span>
+      <span>24h ${formatRain(report.last24Rain)}</span>
+      <span>48h ${formatRain(report.last48Rain)}</span>
+    </div>
+    <small>Updated ${formatWeatherTime(report.referenceTime)} track time</small>
+  `;
+}
+
+function renderTrackConditionsError() {
+  return `
+    <div class="conditions-top">
+      <span>Track conditions</span>
+      <strong>Rain unavailable</strong>
+    </div>
+    <p>Weather did not load, so check the track before riding.</p>
+  `;
+}
+
+async function loadTrackConditions() {
+  const target = document.querySelector("#track-conditions");
+
+  if (!target) {
+    return;
+  }
+
+  try {
+    const report = await fetchTrackRainReport();
+    const condition = estimateTrackCondition(report);
+
+    if (!document.body.contains(target)) {
+      return;
+    }
+
+    target.classList.remove("is-loading", "is-error");
+    target.dataset.condition = condition.key;
+    target.innerHTML = renderTrackConditions(condition, report);
+  } catch {
+    if (!document.body.contains(target)) {
+      return;
+    }
+
+    target.classList.remove("is-loading");
+    target.classList.add("is-error");
+    target.dataset.condition = "unknown";
+    target.innerHTML = renderTrackConditionsError();
+  }
+}
+
 async function renderRoute() {
   cleanupTimer();
   const route = window.location.hash.replace("#", "") || "home";
@@ -827,6 +1047,13 @@ async function renderHomePage() {
                 <strong id="home-best-time">-</strong>
                 <span id="home-best-label">Best lap</span>
               </div>
+            </div>
+            <div class="conditions-card is-loading" id="track-conditions" aria-live="polite">
+              <div class="conditions-top">
+                <span>Track conditions</span>
+                <strong>Checking...</strong>
+              </div>
+              <p>Reading rain near Duns Creek.</p>
             </div>
           </div>
         </div>
@@ -897,6 +1124,7 @@ async function renderHomePage() {
   });
 
   renderHomeRows("lap");
+  loadTrackConditions();
 }
 
 function renderAllTimeRow(row, index, mode = "lap") {

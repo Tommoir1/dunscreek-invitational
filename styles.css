@@ -308,6 +308,83 @@ h1 {
   text-transform: uppercase;
 }
 
+.conditions-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(255, 250, 240, 0.82);
+}
+
+.conditions-top {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.conditions-top span,
+.conditions-card small,
+.conditions-rain span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.conditions-top strong {
+  color: var(--moss);
+  font-size: 1.05rem;
+  line-height: 1;
+  text-align: right;
+  text-transform: uppercase;
+}
+
+.conditions-card p {
+  margin: 0;
+  color: rgba(23, 19, 15, 0.72);
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.conditions-rain {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.conditions-rain span {
+  border: 1px solid rgba(23, 19, 15, 0.12);
+  border-radius: 6px;
+  padding: 6px;
+  background: rgba(255, 250, 240, 0.62);
+  text-align: center;
+}
+
+.conditions-card[data-condition="muddy"] {
+  border-color: rgba(116, 49, 25, 0.42);
+  background: rgba(180, 72, 37, 0.16);
+}
+
+.conditions-card[data-condition="muddy"] .conditions-top strong {
+  color: var(--clay-dark);
+}
+
+.conditions-card[data-condition="tacky"] {
+  border-color: rgba(49, 86, 63, 0.38);
+  background: rgba(200, 228, 211, 0.62);
+}
+
+.conditions-card[data-condition="dry"] {
+  border-color: rgba(242, 200, 75, 0.58);
+  background: rgba(242, 200, 75, 0.18);
+}
+
+.conditions-card.is-error {
+  background: rgba(255, 250, 240, 0.62);
+}
+
 .table-wrap {
   width: 100%;
   overflow-x: auto;
